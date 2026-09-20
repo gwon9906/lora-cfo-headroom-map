@@ -146,11 +146,36 @@ def load_data(P, data_dir, cache, max_symbols=None, upsampling=100, verbose=True
     return X, y, stat
 
 
-def add_noise_theirs(Y, snr_db, rng):
-    """그들 add_noise: 평균 진폭 기준. 정규화는 argmax 에 영향 없어 생략."""
-    amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean(1, keepdims=True)
-    n = rng.standard_normal(Y.shape) + 1j*rng.standard_normal(Y.shape)
-    return (Y + (amp/np.sqrt(2))*n).astype(np.complex64)
+def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True):
+    """그들 add_noise 를 그대로 옮긴다.
+
+        amp = math.pow(0.1, snr/20) * torch.mean(torch.abs(dataY))   # 배치 스칼라
+        noise = amp/sqrt(2) * (randn(num_samples) + 1j*randn(num_samples))  # (M,) 하나
+        dataX = dataY + noise                                        # 배치에 브로드캐스트
+        if normalization:
+            dataX = dataX / torch.mean(torch.abs(dataX))             # 배치 스칼라
+
+    ** 정규화는 반드시 켜야 한다. ** argmax 검출기(decode_loraphy, 표준 RX)는
+    스케일에 불변이라 영향이 없지만, 신경망은 mean|x|=1 로 정규화된 입력에 학습됐다.
+    정규화를 빼면 모델이 학습 분포 밖의 입력을 받아, 스케일이 우연히 맞는 좁은 SNR
+    구간에서만 동작하고 나머지에서는 baseline 보다 나빠진다.
+
+    mode='theirs'     : 위 코드 그대로 (배치 스칼라 amp, 배치 공유 잡음)
+    mode='per-symbol' : 심볼별 독립 잡음 (통계적으로 낫지만 그들 코드와 다름)
+    """
+    if mode == 'theirs':
+        amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean()
+        w = rng.standard_normal(Y.shape[1]) + 1j*rng.standard_normal(Y.shape[1])
+        X = Y + (amp/np.sqrt(2))*w[None, :]
+        if normalize:
+            X = X/np.abs(X).mean()
+    else:
+        amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean(1, keepdims=True)
+        w = rng.standard_normal(Y.shape) + 1j*rng.standard_normal(Y.shape)
+        X = Y + (amp/np.sqrt(2))*w
+        if normalize:
+            X = X/np.abs(X).mean(1, keepdims=True)
+    return X.astype(np.complex64)
 
 
 # -------------------------------------------------- B. DNN
@@ -280,7 +305,8 @@ def main(a):
         per = {k: {} for k in arms}          # 코드별 (macro 평균용)
         for i in range(0, len(X), a.batch):
             Yb, lb = X[i:i+a.batch], y[i:i+a.batch]
-            Yn = add_noise_theirs(Yb, s, rng)          # 세 팔이 같은 잡음을 본다
+            Yn = add_noise_theirs(Yb, s, rng, a.noise_mode, not a.no_norm)
+            #  ^ 세 팔이 같은 텐서를 본다. 정규화는 DNN 에만 영향(나머지는 스케일 불변)
             pred = {'decode_loraphy': decode_loraphy_batch(Yn, P, a.upsampling),
                     'standard_rx': standard_rx(Yn, P, base_n)}
             if dnn is not None:
@@ -300,8 +326,22 @@ def main(a):
 
     out = dict(sf=a.sf, n_symbols=int(len(X)), filter_stat=stat,
                upsampling=a.upsampling, snrs=snrs, results=res,
+               noise_mode=a.noise_mode, normalization=(not a.no_norm),
                note='as-run: DNN saw ~90% of these symbols in training '
                     '(train/test split not reproducible; torch seed unset)')
+    if dnn is not None:
+        hi = [v for v in snrs if v >= 0]
+        if hi:
+            print('\n[온전성] 고SNR 에서 DNN 이 100% 에 가까워야 한다')
+            for v in hi:
+                print(f'  SNR {v:+5.0f}  DNN {res["nelora_dnn"][v]["micro_acc"]*100:6.2f}%'
+                      f'   baseline {res["decode_loraphy"][v]["micro_acc"]*100:6.2f}%'
+                      f'   표준RX {res["standard_rx"][v]["micro_acc"]*100:6.2f}%')
+            worst = min(res['nelora_dnn'][v]['micro_acc'] for v in hi)
+            if worst < 0.97:
+                print('  ** 고SNR 에서도 100%% 가 아니다 (최저 %.2f%%). 파이프라인을 의심할 것.'
+                      % (worst*100))
+
     with open(a.out, 'w') as f:
         json.dump(out, f, indent=2)
     print(f'\n저장: {a.out}  <- 이 파일만 가져오면 된다')
@@ -321,9 +361,13 @@ if __name__ == '__main__':
     ap.add_argument('--upsampling', type=int, default=100)
     ap.add_argument('--max-symbols', type=int, default=3000,
                     help='부분표집 (0 이면 전체). 전체는 매우 느리다')
-    ap.add_argument('--snrs', type=str, default='-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24',
+    ap.add_argument('--snrs', type=str, default='10,5,0,-5,-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24',
                     help='10%% 교차 구간만 보면 충분하다')
     ap.add_argument('--no-dnn', action='store_true', help='체크포인트 없이 baseline 만')
+    ap.add_argument('--noise-mode', choices=['theirs', 'per-symbol'], default='theirs',
+                    help="theirs=그들 코드 그대로(배치 공유 잡음)")
+    ap.add_argument('--no-norm', action='store_true',
+                    help='정규화 끄기 — 진단용. DNN 을 학습 분포 밖으로 내몬다')
     ap.add_argument('--selftest', action='store_true', default=True)
     a = ap.parse_args()
     if a.max_symbols == 0:
