@@ -1,2 +1,7 @@
 *.npy
 **/__pycache__/
+# NELoRa 원본 캡처 데이터셋 (수 GB, 재배포 대상 아님)
+NeLoRa_Dataset/
+
+# Claude Code 로컬 설정
+.claude/

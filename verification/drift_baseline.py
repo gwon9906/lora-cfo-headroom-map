@@ -112,28 +112,31 @@ def dec_genie(Yp, eps):
 
 
 SNR = -25
-NPK = 200
+NPK = 50
 ARMS = ["blind MF", "상수-CFO 추정기 (1D)", "drift-aware 추정기 (2D)", "genie"]
 print(f"SNR = {SNR} dB,  ns = {NS},  {NPK} packets x {NS} = {NPK*NS} symbols per cell")
 print(f"1D grid = {len(G1)} 가설,  2D grid = {len(G1)*len(GS)} 가설\n")
 
+def rx_fixed(syms, snr_db, eps, noise):
+    Y = X[syms] * np.conj(ramp(eps))
+    q = SIGPW / (10 ** (snr_db / 10))
+    return Y + (np.sqrt(q / 2) * noise).astype(np.complex64)
 
-def run(kind, amp):
+def run(kind, amp, seed=1234):
+    rr = np.random.default_rng(seed)          # ← 모든 amp 가 같은 시드
     okm = {a: np.zeros(NPK * NS, bool) for a in ARMS}
     for k in range(NPK):
-        s = rng.integers(0, N, NS)
-        base = float(np.round(rng.uniform(-0.5, 0.5), 3))
-        if kind == "linear":
-            eps = base + amp * IRAMP
-        else:                                   # random walk, 패킷 전체 표준편차 ~ amp
-            w = np.cumsum(rng.normal(0, amp / np.sqrt(NS), NS))
-            eps = base + w - w.mean()
-        Yp = rx(s, SNR, eps)
-        sl = slice(k * NS, (k + 1) * NS)
-        okm["blind MF"][sl] = dec_blind(Yp) == s
-        okm["상수-CFO 추정기 (1D)"][sl] = dec_const(Yp) == s
+        s    = rr.integers(0, N, NS)
+        base = float(np.round(rr.uniform(-0.5, 0.5), 3))
+        u    = np.cumsum(rr.normal(0, 1/np.sqrt(NS), NS)); u -= u.mean()   # 단위 walk
+        nz   = (rr.normal(0, 1, (NS, L)) + 1j*rr.normal(0, 1, (NS, L)))
+        eps  = base + (amp * IRAMP if kind == "linear" else amp * u)       # amp 는 스케일만
+        Yp   = rx_fixed(s, SNR, eps, nz)
+        sl   = slice(k*NS, (k+1)*NS)
+        okm["blind MF"][sl]              = dec_blind(Yp) == s
+        okm["상수-CFO 추정기 (1D)"][sl]    = dec_const(Yp) == s
         okm["drift-aware 추정기 (2D)"][sl] = dec_drift(Yp) == s
-        okm["genie"][sl] = dec_genie(Yp, eps) == s
+        okm["genie"][sl]                 = dec_genie(Yp, eps) == s
     return okm
 
 
@@ -143,7 +146,7 @@ for kind in ["linear", "walk"]:
     print("=" * 112)
     print(f"  {'변화폭(bin)':>11} |" + "".join(f"{a:>24}" for a in ARMS)
           + f"{'genie - 2D (paired)':>26}{'p':>8}")
-    for amp in [0.0, 0.5, 1.0, 2.0]:
+    for amp in [0.0, 0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 1.0]:
         t0 = time.perf_counter()
         okm = run(kind, amp)
         row = f"  {amp:>11.2f} |"
