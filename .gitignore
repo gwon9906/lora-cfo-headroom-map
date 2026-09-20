@@ -5,3 +5,6 @@ NeLoRa_Dataset/
 
 # Claude Code 로컬 설정
 .claude/
+
+# NELoRa DNN 체크포인트 (수십 MB, 재배포 대상 아님)
+checkpoint/
