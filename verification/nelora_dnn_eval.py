@@ -154,6 +154,26 @@ def add_noise_theirs(Y, snr_db, rng):
 
 
 # -------------------------------------------------- B. DNN
+def infer_sf(sd):
+    """가중치 모양에서 체크포인트의 SF 를 역산한다.
+
+    maskCNN:  lstm.weight_ih_l0 = [4*lstm_dim, conv_dim_lstm],  conv_dim_lstm = M = 8*2^SF
+              fc2.weight        = [freq_size*2, fc1_dim],       freq_size     = N = 2^SF
+    C_XtoY:   dense.weight      = [conv_dim_out*4, conv_dim_lstm*4]
+    """
+    for key, div in (('fc2.weight', 2), ('lstm.weight_ih_l0', None),
+                     ('dense.weight', None)):
+        if key not in sd:
+            continue
+        shp = tuple(sd[key].shape)
+        n = shp[0]//div if div else (shp[1] if key == 'lstm.weight_ih_l0' else shp[1]//32)
+        if key == 'lstm.weight_ih_l0':
+            n = n//8                      # conv_dim_lstm = 8*N
+        if n > 0 and (n & (n - 1)) == 0:  # 2 의 거듭제곱인가
+            return int(math.log2(n))
+    return None
+
+
 def find_ckpt(ckpt_dir, pattern, explicit=None):
     """체크포인트를 찾는다. 반복수(100000)가 다를 수 있으므로 패턴으로 고른다."""
     if explicit:
@@ -202,6 +222,13 @@ class DNN:
                 sd = torch.load(p, map_location='cpu')
             if hasattr(sd, 'state_dict'):         # 모델 통째로 저장된 경우
                 sd = sd.state_dict()
+            ck_sf = infer_sf(sd)
+            if ck_sf is not None and ck_sf != sf:
+                raise RuntimeError(
+                    f'체크포인트가 SF{ck_sf} 용인데 SF{sf} 로 돌리고 있다.\n'
+                    f'  파일: {p}\n'
+                    f'  -> Google Drive 의 checkpoint/sf{sf}/ 에서 받거나,\n'
+                    f'     --sf {ck_sf} 로 돌리고 --data-dir 도 SF{ck_sf} 데이터로 바꿀 것.')
             mdl.load_state_dict(sd, strict=True)
             mdl.to(device).eval()
             print(f'  로드: {p}')
