@@ -154,22 +154,57 @@ def add_noise_theirs(Y, snr_db, rng):
 
 
 # -------------------------------------------------- B. DNN
+def find_ckpt(ckpt_dir, pattern, explicit=None):
+    """체크포인트를 찾는다. 반복수(100000)가 다를 수 있으므로 패턴으로 고른다."""
+    if explicit:
+        if not os.path.exists(explicit):
+            raise FileNotFoundError(f'지정한 체크포인트가 없다: {explicit}')
+        return explicit
+    cands = []
+    if os.path.isdir(ckpt_dir):
+        for fn in os.listdir(ckpt_dir):
+            if pattern.lower() in fn.lower() and fn.endswith(('.pkl', '.pt', '.pth')):
+                cands.append(os.path.join(ckpt_dir, fn))
+    if not cands:
+        here = (sorted(os.listdir(ckpt_dir)) if os.path.isdir(ckpt_dir)
+                else f'(디렉터리 자체가 없음: {ckpt_dir})')
+        raise FileNotFoundError(
+            f"'{pattern}' 에 해당하는 체크포인트를 못 찾았다.\n"
+            f"  찾아본 곳: {os.path.abspath(ckpt_dir)}\n"
+            f"  그 안의 내용: {here}\n"
+            f"  -> Google Drive 에서 받은 파일을 그 폴더에 두거나,\n"
+            f"     --ckpt-mask / --ckpt-cls 로 경로를 직접 지정할 것.\n"
+            f"     WSL 에서 찾기:  find ~ -iname '*maskCNN*' -o -iname '*C_XtoY*'")
+    # 반복수가 큰 것을 고른다 (100000 > 90000)
+    def it(p):
+        base = os.path.basename(p)
+        digits = ''.join(c for c in base.split('_')[0] if c.isdigit())
+        return int(digits) if digits else -1
+    cands.sort(key=it, reverse=True)
+    if len(cands) > 1:
+        print(f'  후보 {len(cands)}개 중 선택: {os.path.basename(cands[0])}')
+    return cands[0]
+
+
 class DNN:
-    def __init__(self, sf, ckpt_dir, P, device='cpu'):
+    def __init__(self, sf, ckpt_dir, P, device='cpu', mask_path=None, cls_path=None):
         from model_components import maskCNNModel, classificationHybridModel
         N, M = P['N'], P['M']
         self.N, self.M, self.dev = N, M, device
         self.mask = maskCNNModel(conv_dim_lstm=M, lstm_dim=400, fc1_dim=600, freq_size=N)
         self.cls = classificationHybridModel(conv_dim_in=2, conv_dim_out=N, conv_dim_lstm=M)
-        for mdl, nm in ((self.mask, '100000_maskCNN.pkl'), (self.cls, '100000_C_XtoY.pkl')):
-            p = os.path.join(ckpt_dir, nm)
+        for mdl, pat, exp in ((self.mask, 'maskCNN', mask_path),
+                              (self.cls, 'C_XtoY', cls_path)):
+            p = find_ckpt(ckpt_dir, pat, exp)
             try:                                  # torch>=2.6 은 weights_only 기본 True
                 sd = torch.load(p, map_location='cpu', weights_only=False)
             except TypeError:
                 sd = torch.load(p, map_location='cpu')
+            if hasattr(sd, 'state_dict'):         # 모델 통째로 저장된 경우
+                sd = sd.state_dict()
             mdl.load_state_dict(sd, strict=True)
             mdl.to(device).eval()
-        print(f'  체크포인트 로드 완료: {ckpt_dir}')
+            print(f'  로드: {p}')
 
     def stft(self, x):
         """그들 perform_stft 그대로."""
@@ -204,7 +239,8 @@ def main(a):
         if not (ref == got).all():
             return
 
-    dnn = None if a.no_dnn else DNN(a.sf, a.ckpt_dir, P, a.device)
+    dnn = (None if a.no_dnn else
+           DNN(a.sf, a.ckpt_dir, P, a.device, a.ckpt_mask, a.ckpt_cls))
     base_n = base_chirp_n(a.sf)
     snrs = [float(v) for v in a.snrs.split(',')] if a.snrs else list(range(-30, 1))
 
@@ -249,6 +285,8 @@ if __name__ == '__main__':
     ap.add_argument('--sf', type=int, default=7)
     ap.add_argument('--data-dir', required=True, help='NeLoRa_Dataset/<sf>/ 경로')
     ap.add_argument('--ckpt-dir', default='checkpoint/sf7')
+    ap.add_argument('--ckpt-mask', default=None, help='maskCNN 가중치 경로 직접 지정')
+    ap.add_argument('--ckpt-cls', default=None, help='C_XtoY 가중치 경로 직접 지정')
     ap.add_argument('--out', default='result.json')
     ap.add_argument('--cache', default='')
     ap.add_argument('--batch', type=int, default=64)
