@@ -88,6 +88,16 @@ def base_chirp_n(sf):
     return np.exp(2j*np.pi*(n**2/(2.0*N) - n/2.0))
 
 
+def brickwall_lpf_np(Y, P):
+    """±BW/2 브릭월 LPF. OSF 와 텐서 모양은 유지 (nelora_lpf_patch 와 동일 연산)."""
+    N, M = P['N'], P['M']
+    Z = np.fft.fft(Y, axis=1)
+    mask = np.zeros(M, dtype=bool)
+    mask[:N//2] = True
+    mask[-(N - N//2):] = True
+    return np.fft.ifft(Z*mask, axis=1).astype(np.complex64)
+
+
 def standard_rx(Y, P, base_n):
     """LPF(+-BW/2) -> N 샘플 데시메이션 -> de-chirp -> N-FFT.
 
@@ -106,7 +116,7 @@ def load_data(P, data_dir, cache, max_symbols=None, upsampling=100, verbose=True
     if cache and os.path.exists(cache):
         with open(cache, 'rb') as g:
             d = np.load(g, allow_pickle=True)
-            return d['X'], d['y'], d['stat'].item()
+            return d['X'], d['y'], d['stat'].item(), d['pk']
 
     N, M = P['N'], P['M']
     files = []
@@ -143,7 +153,7 @@ def load_data(P, data_dir, cache, max_symbols=None, upsampling=100, verbose=True
             print(f'  {max_symbols}개로 부분표집')
     if cache:
         np.savez(cache, X=X, y=y, pk=pk, stat=np.array(stat, dtype=object))
-    return X, y, stat
+    return X, y, stat, pk
 
 
 def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True):
@@ -295,7 +305,7 @@ def main(a):
     P = build_params(a.sf)
     print(f'SF{a.sf}  N={P["N"]}  M={P["M"]}  OSF={P["osf"]}')
 
-    X, y, stat = load_data(P, a.data_dir, a.cache, a.max_symbols, a.upsampling)
+    X, y, stat, pk = load_data(P, a.data_dir, a.cache, a.max_symbols, a.upsampling)
     print(f'  평가 심볼 {len(X)}개')
 
     if a.selftest:
@@ -324,6 +334,8 @@ def main(a):
         for i in range(0, len(X), a.batch):
             Yb, lb = X[i:i+a.batch], y[i:i+a.batch]
             Yn = add_noise_theirs(Yb, s, rng, a.noise_mode, not a.no_norm)
+            if a.lpf:
+                Yn = brickwall_lpf_np(Yn, P)   # 학습 입력과 같은 대역으로
             #  ^ 세 팔이 같은 텐서를 본다. 정규화는 DNN 에만 영향(나머지는 스케일 불변)
             pred = {'decode_loraphy': decode_loraphy_batch(Yn, P, a.upsampling),
                     'standard_rx': standard_rx(Yn, P, base_n)}
@@ -342,10 +354,56 @@ def main(a):
         print(f'  SNR {s:+6.1f}  ' + '  '.join(
             f'{k}={res[k][s]["micro_acc"]*100:5.1f}%' for k in arms))
 
-    out = dict(sf=a.sf, n_symbols=int(len(X)), filter_stat=stat,
+    if a.boot and dnn is not None:
+        print(f'\n[부트스트랩] 패킷 재표집 + 잡음 재추출, {a.boot} 복제 (U={a.boot_u})')
+        upk, inv = np.unique(pk, return_inverse=True)
+        idx_by = [np.where(inv == i)[0] for i in range(len(upk))]
+        rgb = np.random.default_rng(11)
+        from nelora_mf_test import cross as _cross
+        gaps = {k: [] for k in ('std-dnn', 'dnn-base', 'std-base')}
+        for bi in range(a.boot):
+            sel = np.concatenate([idx_by[i] for i in rgb.integers(0, len(upk), len(upk))])
+            Yb, lb = X[sel], y[sel]
+            cr = {}
+            for nm in ('decode_loraphy', 'nelora_dnn', 'standard_rx'):
+                rr = np.random.default_rng(70_000 + bi)      # 세 팔이 같은 잡음
+                ser = []
+                for sv in snrs:
+                    Yn = add_noise_theirs(Yb, sv, rr, a.noise_mode, not a.no_norm)
+                    if a.lpf:
+                        Yn = brickwall_lpf_np(Yn, P)
+                    if nm == 'decode_loraphy':
+                        pr = decode_loraphy_batch(Yn, P, a.boot_u)
+                    elif nm == 'standard_rx':
+                        pr = standard_rx(Yn, P, base_n)
+                    else:
+                        pr = np.concatenate([dnn.predict(Yn[i:i+a.batch])
+                                             for i in range(0, len(Yn), a.batch)])
+                    ser.append((pr != lb).mean()*100)
+                cr[nm] = _cross(list(snrs), ser, 10.0)
+            if all(v is not None for v in cr.values()):
+                gaps['std-dnn'].append(cr['nelora_dnn'] - cr['standard_rx'])
+                gaps['dnn-base'].append(cr['decode_loraphy'] - cr['nelora_dnn'])
+                gaps['std-base'].append(cr['decode_loraphy'] - cr['standard_rx'])
+        lbl = {'std-dnn': '표준RX - DNN', 'dnn-base': 'DNN - baseline',
+               'std-base': '표준RX - baseline'}
+        boot_out = {}
+        for k, v in gaps.items():
+            if v:
+                arr = np.array(v)
+                lo, hi = float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5))
+                med = float(np.median(arr))
+                boot_out[k] = dict(median=med, lo=lo, hi=hi, n=len(arr))
+                sig = '유의' if (lo > 0 or hi < 0) else '0 과 구별 안 됨'
+                print(f'  {lbl[k]:<18}{med:+7.2f} dB  [{lo:+6.2f}, {hi:+6.2f}]  '
+                      f'{sig}  (n={len(arr)})')
+    else:
+        boot_out = None
+
+    out = dict(sf=a.sf, n_symbols=int(len(X)), filter_stat=stat, bootstrap=boot_out,
                upsampling=a.upsampling, snrs=snrs, results=res,
                noise_mode=a.noise_mode, normalization=(not a.no_norm),
-               model_mode=a.model_mode,
+               model_mode=a.model_mode, lpf=bool(a.lpf),
                note='as-run: DNN saw ~90% of these symbols in training '
                     '(train/test split not reproducible; torch seed unset)')
     if dnn is not None:
@@ -383,6 +441,12 @@ if __name__ == '__main__':
     ap.add_argument('--snrs', type=str, default='10,5,0,-5,-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24',
                     help='10%% 교차 구간만 보면 충분하다')
     ap.add_argument('--no-dnn', action='store_true', help='체크포인트 없이 baseline 만')
+    ap.add_argument('--lpf', action='store_true',
+                    help='입력에 ±BW/2 브릭월 LPF 적용 (LPF 로 학습한 모델 평가용)')
+    ap.add_argument('--boot', type=int, default=0,
+                    help='패킷 재표집 + 잡음 재추출 부트스트랩 복제 수')
+    ap.add_argument('--boot-u', type=int, default=10,
+                    help='부트스트랩용 upsampling (U=10 은 U=100 과 동치, 10배 빠름)')
     ap.add_argument('--model-mode', choices=['train', 'eval'], default='train',
                     help="train=그들 test() 와 동일(.eval() 미호출). eval=통상적 추론")
     ap.add_argument('--noise-mode', choices=['theirs', 'per-symbol'], default='theirs',

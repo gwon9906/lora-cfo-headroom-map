@@ -51,11 +51,36 @@ def decode_loraphy(Y, down, N, U=100, chunk=CHUNK):
     return out
 
 
-def add_noise_theirs(Y, snr_db, rng):
-    """그들 add_noise: 평균 '진폭' 기준."""
-    amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean(1, keepdims=True)
-    n = rng.standard_normal(Y.shape) + 1j*rng.standard_normal(Y.shape)
-    return Y + (amp/np.sqrt(2))*n
+def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True):
+    """그들 add_noise 를 그대로 옮긴다.
+
+        amp = math.pow(0.1, snr/20) * torch.mean(torch.abs(dataY))   # 배치 스칼라
+        noise = amp/sqrt(2) * (randn(num_samples) + 1j*randn(num_samples))  # (M,) 하나
+        dataX = dataY + noise                                        # 배치에 브로드캐스트
+        if normalization:
+            dataX = dataX / torch.mean(torch.abs(dataX))             # 배치 스칼라
+
+    ** amp 가 배치 전체 평균에서 나오는 것이 중요하다. ** 캡처 진폭이 흩어져 있으면
+    (이 데이터셋은 표준편차 2.73 dB, 하위 5% 가 -5.90 dB) 평균보다 조용한 심볼이
+    표기 SNR 보다 나쁜 실효 SNR 을 받는다. 심볼별 amp 를 쓰면 곡선이 통째로 ~2.2 dB
+    낙관적으로 나온다 — 초판 nelora_theirs 가 그랬고, nelora_dnn_eval 과 2.2 dB
+    어긋났던 원인이다.
+
+    mode='per-symbol' 은 그 옛 동작(심볼별 amp, 심볼별 독립 잡음)이며 비교용으로만 남긴다.
+    """
+    if mode == 'theirs':
+        amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean()
+        w = rng.standard_normal(Y.shape[1]) + 1j*rng.standard_normal(Y.shape[1])
+        X = Y + (amp/np.sqrt(2))*w[None, :]
+        if normalize:
+            X = X/np.abs(X).mean()
+    else:
+        amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean(1, keepdims=True)
+        w = rng.standard_normal(Y.shape) + 1j*rng.standard_normal(Y.shape)
+        X = Y + (amp/np.sqrt(2))*w
+        if normalize:
+            X = X/np.abs(X).mean(1, keepdims=True)
+    return X.astype(np.complex64)
 
 
 def add_noise_mine(Y, snr_db, rng):
