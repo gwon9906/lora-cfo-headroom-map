@@ -38,7 +38,7 @@ model_components.py 와 같은 폴더여야 한다.
 """
 import os, json, math, argparse, random
 import numpy as np
-import torch
+# torch 는 DNN 팔에서만 필요하다. --no-dnn 이면 없어도 돌아간다.
 from scipy.signal import chirp
 from scipy.fft import fft
 
@@ -86,6 +86,80 @@ def base_chirp_n(sf):
     N = 2**sf
     n = np.arange(N)
     return np.exp(2j*np.pi*(n**2/(2.0*N) - n/2.0))
+
+
+# ---- 판정 기준선(D2/D3)용 최소 구현. 이 파일만 복사하면 되도록 인라인한다. ----
+def chirp_bank_np(sf, osf=8):
+    """해석적 2차 위상 chirp 뱅크 (nelora_chirp.chirp_bank 와 동일)."""
+    N = 2**sf
+    M = osf*N
+    n = np.arange(M)
+    base = np.exp(2j*np.pi*(n**2/(2.0*N*osf**2) - n/(2.0*osf)))
+    idx = (np.arange(M)[None, :] + osf*np.arange(N)[:, None]) % M
+    return base[idx]
+
+
+def _norm_rows(A):
+    return A/(np.linalg.norm(A, axis=1, keepdims=True) + 1e-30)
+
+
+def _frac_shift(X, tau):
+    M = X.shape[-1]
+    f = np.fft.fftfreq(M)
+    return np.fft.ifft(np.fft.fft(X, axis=-1)*np.exp(-2j*np.pi*f*tau), axis=-1)
+
+
+def apply_corr_np(Y, tau, eps):
+    """추정한 (tau, eps) 를 되돌려 신호를 뱅크에 정렬한다."""
+    M = Y.shape[-1]
+    n = np.arange(M)
+    return _frac_shift(Y, -tau)*np.exp(-2j*np.pi*eps*n/M)
+
+
+def align_from_labels_np(Y, lab, bank, n_use=400, seed=0):
+    """라벨을 아는 심볼들로 전역 (tau, eps) 추정."""
+    M = bank.shape[1]
+    rng = np.random.default_rng(seed)
+    if len(Y) > n_use:
+        s = rng.choice(len(Y), n_use, replace=False)
+        Y, lab = Y[s], lab[s]
+    n = np.arange(M)
+    eps_grid = np.arange(-1, 1.001, 1/32)
+    E = np.exp(-2j*np.pi*eps_grid[None, :]*n[:, None]/M)
+    best, bt, be = -1.0, 0.0, 0.0
+    for tau in np.arange(-8, 8.01, 0.25):
+        Ps = _norm_rows(_frac_shift(bank, tau))
+        sc = np.abs((Y*np.conj(Ps[lab])) @ E).sum(0)
+        j = int(np.argmax(sc))
+        if sc[j] > best:
+            best, bt, be = sc[j], tau, float(eps_grid[j])
+    return bt, be
+
+
+def empirical_prototypes_np(by, N, M):
+    """코드별 캡처들의 주성분 (임의 위상에 불변인 ML 추정)."""
+    Pr = np.zeros((N, M), dtype=np.complex128)
+    for c, lst in by.items():
+        if not lst:
+            continue
+        A = _norm_rows(np.array(lst))
+        if len(A) == 1:
+            Pr[c] = A[0]
+            continue
+        Pr[c] = np.linalg.svd(A, full_matrices=False)[2][0]
+    return Pr
+
+
+def d_mf_np(Y, bank):
+    return np.argmax(np.abs(Y @ np.conj(bank).T), 1)
+
+
+def cross_np(xs, ys, t=10.0):
+    """SER 곡선이 임계 t 를 지나는 SNR (선형보간)."""
+    for i in range(len(xs) - 1):
+        if (ys[i] - t)*(ys[i+1] - t) <= 0 and ys[i] != ys[i+1]:
+            return xs[i] + (t - ys[i])*(xs[i+1] - xs[i])/(ys[i+1] - ys[i])
+    return None
 
 
 def brickwall_lpf_np(Y, P):
@@ -249,6 +323,8 @@ def find_ckpt(ckpt_dir, pattern, explicit=None):
 
 
 class DNN:
+    _torch = None
+
     """그들 test() 는 .eval() 을 부르지 않는다 — train() 안 226~227행에만 있다.
 
     모델에는 BatchNorm2d 8개와 Dropout(0.2)/(0.5) 가 있으므로, 그들 평가는
@@ -263,6 +339,8 @@ class DNN:
 
     def __init__(self, sf, ckpt_dir, P, device='cpu', mask_path=None, cls_path=None,
                  mode='train'):
+        import torch
+        DNN._torch = torch
         from model_components import maskCNNModel, classificationHybridModel
         N, M = P['N'], P['M']
         self.N, self.M, self.dev = N, M, device
@@ -272,6 +350,7 @@ class DNN:
                               (self.cls, 'C_XtoY', cls_path)):
             p = find_ckpt(ckpt_dir, pat, exp)
             try:                                  # torch>=2.6 은 weights_only 기본 True
+                torch = DNN._torch
                 sd = torch.load(p, map_location='cpu', weights_only=False)
             except TypeError:
                 sd = torch.load(p, map_location='cpu')
@@ -293,27 +372,28 @@ class DNN:
                  if mode == 'train' else '  (통상적 추론)'))
 
     def stft(self, x):
+        torch = DNN._torch
         """그들 perform_stft 그대로."""
         full = torch.stft(input=x, n_fft=self.M, hop_length=self.N//4,
                           win_length=self.N//2, pad_mode='constant', return_complex=True)
         img = torch.concat((full[:, -self.N//2:, :], full[:, 0:self.N//2, :]), axis=1)
         return torch.stack((img.real, img.imag), 1)
 
-    @torch.no_grad()
     def predict(self, Y):
-        x = torch.tensor(Y, dtype=torch.cfloat)
-        out = self.cls(self.mask(self.stft(x).to(self.dev)))
-        return torch.max(out, 1)[1].cpu().numpy()
+        torch = DNN._torch
+        with torch.no_grad():
+            x = torch.tensor(Y, dtype=torch.cfloat)
+            out = self.cls(self.mask(self.stft(x).to(self.dev)))
+            return torch.max(out, 1)[1].cpu().numpy()
 
 
 # -------------------------------------------------- 측정
 def main(a):
-    np.random.seed(10); random.seed(10); torch.manual_seed(10)
+    np.random.seed(10); random.seed(10)
     P = build_params(a.sf)
     print(f'SF{a.sf}  N={P["N"]}  M={P["M"]}  OSF={P["osf"]}')
 
-    from nelora_chirp import chirp_bank as _bank
-    Xbank = _bank(a.sf, 8)[0]
+    Xbank = chirp_bank_np(a.sf, 8)
     X, y, stat, pk = load_data(P, a.data_dir, a.cache, a.max_symbols, a.upsampling)
     X_all, y_all, held = X, y, None
     if a.only_idx:
@@ -350,27 +430,24 @@ def main(a):
     Xn = Xbank/np.linalg.norm(Xbank, axis=1, keepdims=True)
     ref = {}
     if a.refs:
-        from nelora_stdrx import align_from_labels as _align
-        from nelora_cfo import apply_corr as _apply
-        from nelora_mf_test import empirical_prototypes as _emp, d_mf as _dmf
         if held is not None:                      # held-out 밖 심볼로 프로토타입
             Xp, yp = X_all[~held], y_all[~held]
         else:
             Xp, yp = X, y
-        g_tau, g_eps = _align(Xp.astype(np.complex128), yp, Xbank)
+        g_tau, g_eps = align_from_labels_np(Xp.astype(np.complex128), yp, Xbank)
         print(f'  기준선 정렬: tau={g_tau:+.2f} 샘플, eps={g_eps:+.4f} bin  '
               f'(프로토타입 {len(Xp)}심볼)')
-        Pal = _apply(Xp.astype(np.complex128), g_tau, g_eps)
+        Pal = apply_corr_np(Xp.astype(np.complex128), g_tau, g_eps)
         by = {c: [] for c in range(P['N'])}
         for yv, c in zip(Pal, yp):
             if len(by[c]) < 30:
                 by[c].append(yv)
-        Pemp = _emp(by, P['N'], P['M'])[0]
+        Pemp = empirical_prototypes_np(by, P['N'], P['M'])
         cov = float(np.mean([len(v) > 0 for v in by.values()]))
         print(f'  경험 프로토타입 코드 커버리지 {cov*100:.0f}%'
               + ('' if cov > 0.95 else '  ** 부족: D3 는 참고값 **'))
-        ref = {'D2_aligned': (lambda Y: _dmf(_apply(Y.astype(np.complex128), g_tau, g_eps), Xn)),
-               'D3_aligned': (lambda Y: _dmf(_apply(Y.astype(np.complex128), g_tau, g_eps), Pemp))}
+        ref = {'D2_aligned': (lambda Y: d_mf_np(apply_corr_np(Y.astype(np.complex128), g_tau, g_eps), Xn)),
+               'D3_aligned': (lambda Y: d_mf_np(apply_corr_np(Y.astype(np.complex128), g_tau, g_eps), Pemp))}
     if a.lpf:
         print('  입력에 ±BW/2 브릭월 LPF 적용 (잡음 -> LPF -> 정규화, 학습과 동일 순서)')
     snrs = [float(v) for v in a.snrs.split(',')] if a.snrs else list(range(-30, 1))
@@ -411,7 +488,6 @@ def main(a):
         upk, inv = np.unique(pk, return_inverse=True)
         idx_by = [np.where(inv == i)[0] for i in range(len(upk))]
         rgb = np.random.default_rng(11)
-        from nelora_mf_test import cross as _cross
         gaps = {k: [] for k in ('std-dnn', 'dnn-base', 'std-base')}
         for bi in range(a.boot):
             sel = np.concatenate([idx_by[i] for i in rgb.integers(0, len(upk), len(upk))])
@@ -430,7 +506,7 @@ def main(a):
                         pr = np.concatenate([dnn.predict(Yn[i:i+a.batch])
                                              for i in range(0, len(Yn), a.batch)])
                     ser.append((pr != lb).mean()*100)
-                cr[nm] = _cross(list(snrs), ser, 10.0)
+                cr[nm] = cross_np(list(snrs), ser, 10.0)
             if all(v is not None for v in cr.values()):
                 gaps['std-dnn'].append(cr['nelora_dnn'] - cr['standard_rx'])
                 gaps['dnn-base'].append(cr['decode_loraphy'] - cr['nelora_dnn'])
