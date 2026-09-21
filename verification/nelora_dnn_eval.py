@@ -119,24 +119,27 @@ def load_data(P, data_dir, cache, max_symbols=None, upsampling=100, verbose=True
             return d['X'], d['y'], d['stat'].item(), d['pk']
 
     N, M = P['N'], P['M']
-    files = []
+    # ** 그들 load_data 와 같은 순서여야 한다. **
+    #   그들은 files[truth_idx] 에 모아두고 truth_idx 오름차순으로 돈다 (코드 순).
+    #   패킷 순으로 돌면 --only-idx 의 인덱스가 다른 심볼을 가리킨다.
+    buckets = [[] for _ in range(N)]
     for sub in sorted(os.listdir(data_dir)):
-        p = os.path.join(data_dir, sub)
-        if os.path.isdir(p):
-            for fn in sorted(os.listdir(p)):
-                files.append((os.path.join(p, fn), int(fn.split('_')[1]), sub))
+        d = os.path.join(data_dir, sub)
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            buckets[int(fn.split('_')[1]) % N].append((os.path.join(d, fn), sub))
+    files = [(fp, sub) for lst in buckets for (fp, sub) in lst]
     if verbose:
-        print(f'  파일 {len(files)}개 발견')
+        print(f'  파일 {len(files)}개 발견 (코드 순 — 그들 load_data 와 동일)')
 
-    X, y, pk = [], [], []
     raw = np.empty((len(files), M), dtype=np.complex64)
     lab = np.empty(len(files), dtype=np.int64)
     keepsrc = []
-    for i, (fp, truth, sub) in enumerate(files):
-        a = np.fromfile(fp, np.complex64, M)
-        if a.size != M:
-            continue
-        raw[i] = a; lab[i] = truth; keepsrc.append(sub)
+    for i, (fp, sub) in enumerate(files):
+        raw[i] = np.fromfile(fp, np.complex64, M)
+        lab[i] = int(os.path.basename(fp).split('_')[1]) % N
+        keepsrc.append(sub)
     est = decode_loraphy_batch(raw, P, upsampling)
     keep = est == lab
     stat = dict(total=int(len(files)), kept=int(keep.sum()),
@@ -315,9 +318,12 @@ def main(a):
     X_all, y_all, held = X, y, None
     if a.only_idx:
         idx = np.load(a.only_idx)
-        if a.max_symbols and len(X) < stat['kept']:
-            raise SystemExit('--only-idx 는 --max-symbols 0 (전체) 에서만 쓸 것 — '
-                             '부분표집하면 인덱스가 어긋난다')
+        if len(X) != stat['kept']:
+            raise SystemExit(
+                '--only-idx 는 전체 집합에서만 쓸 수 있다. '
+                f'지금 {len(X)}심볼인데 필터 통과분은 {stat["kept"]}심볼이다. '
+                f'캐시가 부분표집본이므로 지우고 --max-symbols 0 으로 다시 만들 것: '
+                f'rm {a.cache or "<cache>"}')
         held = np.zeros(len(X), dtype=bool); held[idx] = True
         X, y, pk = X[idx], y[idx], (pk[idx] if pk is not None else None)
         print(f'  held-out 만 평가: {a.only_idx} -> {len(X)}심볼')
