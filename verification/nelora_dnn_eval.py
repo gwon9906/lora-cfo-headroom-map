@@ -40,7 +40,12 @@ import os, json, math, argparse, random
 import numpy as np
 # torch 는 DNN 팔에서만 필요하다. --no-dnn 이면 없어도 돌아간다.
 from scipy.signal import chirp
-from scipy.fft import fft
+from scipy.fft import fft as _sfft
+
+
+def fft(*args, **kw):
+    kw.setdefault('workers', -1)
+    return _sfft(*args, **kw)
 
 
 # ------------------------------------------------------------------ 설정
@@ -74,7 +79,7 @@ def decode_loraphy_batch(Y, P, upsampling=100, chunk=32):
     out = np.empty(len(Y), dtype=np.int64)
     T = N*upsampling
     for i in range(0, len(Y), chunk):
-        Z = np.fft.fft(Y[i:i+chunk]*down[None, :], M*upsampling, axis=1)
+        Z = fft(Y[i:i+chunk]*down[None, :], M*upsampling, axis=1)  # workers=-1
         s = np.abs(Z[:, :T]) + np.abs(Z[:, -T:])
         out[i:i+chunk] = np.round(np.argmax(s, 1)/upsampling).astype(np.int64) % N
     return out
@@ -452,101 +457,108 @@ def main(a):
         print('  입력에 ±BW/2 브릭월 LPF 적용 (잡음 -> LPF -> 정규화, 학습과 동일 순서)')
     snrs = [float(v) for v in a.snrs.split(',')] if a.snrs else list(range(-30, 1))
 
+    # ================= 2단계 측정 =================
+    # 1단계(비쌈): 잡음 실현 R 개만 뽑아 '심볼별 정오답' 을 한 번만 계산해 둔다.
+    # 2단계(거의 공짜): 패킷 재표집은 그 배열을 인덱싱만 한다. 재계산이 없으므로
+    #                   B=1000 복제도 몇 초다.
+    # §5-7 에서 잡음 재추출이 구간을 넓히지 않음을 확인했으므로 R 은 작아도 된다.
+    # 구간을 정하는 것은 패킷 간 편차다.
     arms = (['decode_loraphy', 'standard_rx']
             + ([] if dnn is None else ['nelora_dnn']) + list(ref))
+    R = max(1, a.noise_reals)
+    n = len(X)
+    ok_arr = {k: np.zeros((R, len(snrs), n), dtype=bool) for k in arms}
+
+    print(f'\n[1단계] 잡음 실현 {R}개 × SNR {len(snrs)}점 × 팔 {len(arms)}개'
+          f'  (심볼 {n}, 배치 {a.batch})')
+    import time as _time
+    _t0 = _time.time()
+    for r in range(R):
+        rng = np.random.default_rng(1000 + r)
+        if dnn is not None and DNN._torch is not None:
+            # train 모드라 Dropout 이 켜져 있다. 시드를 고정해야 재현되고,
+            # 그 무작위성이 '잡음 실현' 의 일부로 들어간다.
+            DNN._torch.manual_seed(1000 + r)
+        for j, s in enumerate(snrs):
+            for i in range(0, n, a.batch):
+                Yb, lb = X[i:i+a.batch], y[i:i+a.batch]
+                # 배치 크기·구성은 그들 것을 그대로 둔다. train 모드 BatchNorm 이
+                # 테스트 배치 통계를 쓰므로 배치를 키우면 결과가 바뀐다.
+                Yn = add_noise_theirs(Yb, s, rng, a.noise_mode, not a.no_norm, post_fn)
+                pred = {'decode_loraphy': decode_loraphy_batch(Yn, P, a.upsampling),
+                        'standard_rx': standard_rx(Yn, P, base_n)}
+                for _k, _f in ref.items():
+                    pred[_k] = _f(Yn)
+                if dnn is not None:
+                    pred['nelora_dnn'] = dnn.predict(Yn)
+                for k in arms:
+                    ok_arr[k][r, j, i:i+len(lb)] = (pred[k] == lb)
+        el = _time.time() - _t0
+        print(f'  실현 {r+1}/{R}  경과 {el/60:.1f}분'
+              + (f'  남은 예상 {el/(r+1)*(R-r-1)/60:.1f}분' if r + 1 < R else ''),
+              flush=True)
+
+    # --- 본 표: R 개 실현 평균
+    codes = np.unique(y)
+    by_code = [np.where(y == c)[0] for c in codes]
     res = {k: {} for k in arms}
-    rng = np.random.default_rng(1)
-    print(f'\nSNR {snrs[0]:.0f} ~ {snrs[-1]:.0f} ({len(snrs)}점), 팔 {len(arms)}개')
-    for s in snrs:
-        hit = {k: 0 for k in arms}
-        per = {k: {} for k in arms}          # 코드별 (macro 평균용)
-        for i in range(0, len(X), a.batch):
-            Yb, lb = X[i:i+a.batch], y[i:i+a.batch]
-            Yn = add_noise_theirs(Yb, s, rng, a.noise_mode, not a.no_norm, post_fn)
-            #  ^ 세 팔이 같은 텐서를 본다. 정규화는 DNN 에만 영향(나머지는 스케일 불변)
-            pred = {'decode_loraphy': decode_loraphy_batch(Yn, P, a.upsampling),
-                    'standard_rx': standard_rx(Yn, P, base_n)}
-            for _k, _f in ref.items():
-                pred[_k] = _f(Yn)
-            if dnn is not None:
-                pred['nelora_dnn'] = dnn.predict(Yn)
-            for k in arms:
-                ok = pred[k] == lb
-                hit[k] += int(ok.sum())
-                for c, o in zip(lb, ok):
-                    d = per[k].setdefault(int(c), [0, 0])
-                    d[0] += int(o); d[1] += 1
+    for j, s in enumerate(snrs):
         for k in arms:
-            micro = hit[k]/len(X)
-            macro = float(np.mean([v[0]/v[1] for v in per[k].values()]))
+            micro = float(ok_arr[k][:, j, :].mean())
+            macro = float(np.mean([ok_arr[k][:, j, ix].mean() for ix in by_code]))
             res[k][s] = dict(micro_acc=micro, macro_acc=macro)
         print(f'  SNR {s:+6.1f}  ' + '  '.join(
             f'{k}={res[k][s]["micro_acc"]*100:5.1f}%' for k in arms))
 
-    base_out = dict(sf=a.sf, n_symbols=int(len(X)), filter_stat=stat, bootstrap=None,
+    base_out = dict(sf=a.sf, n_symbols=int(n), filter_stat=stat, bootstrap=None,
                     upsampling=a.upsampling, snrs=snrs, results=res,
                     noise_mode=a.noise_mode, normalization=(not a.no_norm),
-                    model_mode=a.model_mode, lpf=bool(a.lpf),
-                    note='as-run/held-out; 부트스트랩 전 중간 저장')
+                    model_mode=a.model_mode, lpf=bool(a.lpf), noise_reals=R,
+                    note='held-out; 부트스트랩 전 중간 저장')
     with open(a.out, 'w') as f:
         json.dump(base_out, f, indent=2)
-    print(f'\n중간 저장: {a.out}  (부트스트랩 중단해도 이 표는 남는다)')
+    print(f'\n중간 저장: {a.out}')
 
-    if a.boot and dnn is not None:
-        print(f'\n[부트스트랩] 패킷 재표집 + 잡음 재추출, {a.boot} 복제 (U={a.boot_u})')
+    # --- 2단계: 패킷 재표집 (재계산 없음)
+    boot_out = None
+    if a.boot and pk is not None:
+        print(f'[2단계] 패킷 재표집 {a.boot} 복제 — 저장된 정오답 인덱싱만')
         upk, inv = np.unique(pk, return_inverse=True)
         idx_by = [np.where(inv == i)[0] for i in range(len(upk))]
-        rgb = np.random.default_rng(11)
-        gaps = {k: [] for k in ('std-dnn', 'dnn-base', 'std-base')}
-        import time as _time
-        _t0 = _time.time()
-        for bi in range(a.boot):
-            if bi and bi % 10 == 0:
-                _el = _time.time() - _t0
-                print(f'    {bi}/{a.boot} 복제  경과 {_el/60:.1f}분  '
-                      f'남은 예상 {_el/bi*(a.boot-bi)/60:.1f}분', flush=True)
+        rgb = np.random.default_rng(7)
+        pairs = [(x, z) for x in arms for z in arms if x != z]
+        want = [('standard_rx', 'nelora_dnn'), ('decode_loraphy', 'nelora_dnn'),
+                ('decode_loraphy', 'standard_rx'), ('D3_aligned', 'nelora_dnn'),
+                ('decode_loraphy', 'D3_aligned')]
+        want = [w for w in want if w[0] in arms and w[1] in arms]
+        acc_g = {w: [] for w in want}
+        for b in range(a.boot):
+            r = int(rgb.integers(R))
             sel = np.concatenate([idx_by[i] for i in rgb.integers(0, len(upk), len(upk))])
-            Yb, lb = X[sel], y[sel]
             cr = {}
-            for nm in ('decode_loraphy', 'nelora_dnn', 'standard_rx'):
-                rr = np.random.default_rng(70_000 + bi)      # 세 팔이 같은 잡음
-                ser = []
-                for sv in snrs:
-                    Yn = add_noise_theirs(Yb, sv, rr, a.noise_mode, not a.no_norm, post_fn)
-                    if nm == 'decode_loraphy':
-                        pr = decode_loraphy_batch(Yn, P, a.boot_u)
-                    elif nm == 'standard_rx':
-                        pr = standard_rx(Yn, P, base_n)
-                    else:
-                        pr = np.concatenate([dnn.predict(Yn[i:i+a.batch])
-                                             for i in range(0, len(Yn), a.batch)])
-                    ser.append((pr != lb).mean()*100)
-                cr[nm] = cross_np(list(snrs), ser, 10.0)
-            if all(v is not None for v in cr.values()):
-                gaps['std-dnn'].append(cr['nelora_dnn'] - cr['standard_rx'])
-                gaps['dnn-base'].append(cr['decode_loraphy'] - cr['nelora_dnn'])
-                gaps['std-base'].append(cr['decode_loraphy'] - cr['standard_rx'])
-        lbl = {'std-dnn': '표준RX - DNN', 'dnn-base': 'DNN - baseline',
-               'std-base': '표준RX - baseline'}
+            for k in arms:
+                ser = [(1 - ok_arr[k][r, j, sel].mean())*100 for j in range(len(snrs))]
+                cr[k] = cross_np(list(snrs), ser, 10.0)
+            for w in want:
+                if cr[w[0]] is not None and cr[w[1]] is not None:
+                    acc_g[w].append(cr[w[0]] - cr[w[1]])
         boot_out = {}
-        for k, v in gaps.items():
-            if v:
-                arr = np.array(v)
-                lo, hi = float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5))
-                med = float(np.median(arr))
-                boot_out[k] = dict(median=med, lo=lo, hi=hi, n=len(arr))
-                sig = '유의' if (lo > 0 or hi < 0) else '0 과 구별 안 됨'
-                print(f'  {lbl[k]:<18}{med:+7.2f} dB  [{lo:+6.2f}, {hi:+6.2f}]  '
-                      f'{sig}  (n={len(arr)})')
-    else:
-        boot_out = None
+        print(f'  {"격차":<34}{"중앙값":>10}{"95% CI":>22}')
+        for w in want:
+            v = acc_g[w]
+            if not v:
+                continue
+            arr = np.array(v)
+            lo, hi = float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5))
+            med = float(np.median(arr))
+            boot_out[f'{w[0]}_minus_{w[1]}'] = dict(median=med, lo=lo, hi=hi, n=len(arr))
+            sig = '유의' if (lo > 0 or hi < 0) else '0 과 구별 안 됨'
+            print(f'  {w[0]} − {w[1]:<20}{med:>+9.2f}  [{lo:+6.2f}, {hi:+6.2f}]  {sig}')
+        base_out['bootstrap'] = boot_out
+        base_out['note'] = 'held-out; 2단계 부트스트랩 (잡음 실현 R, 패킷 재표집 B)'
+        with open(a.out, 'w') as f:
+            json.dump(base_out, f, indent=2)
 
-    out = dict(sf=a.sf, n_symbols=int(len(X)), filter_stat=stat, bootstrap=boot_out,
-               upsampling=a.upsampling, snrs=snrs, results=res,
-               noise_mode=a.noise_mode, normalization=(not a.no_norm),
-               model_mode=a.model_mode, lpf=bool(a.lpf),
-               note='as-run: DNN saw ~90% of these symbols in training '
-                    '(train/test split not reproducible; torch seed unset)')
     if dnn is not None:
         hi = [v for v in snrs if v >= 0]
         if hi:
@@ -560,8 +572,6 @@ def main(a):
                 print('  ** 고SNR 에서도 100%% 가 아니다 (최저 %.2f%%). 파이프라인을 의심할 것.'
                       % (worst*100))
 
-    with open(a.out, 'w') as f:
-        json.dump(out, f, indent=2)
     print(f'\n저장: {a.out}  <- 이 파일만 가져오면 된다')
 
 
@@ -589,8 +599,10 @@ if __name__ == '__main__':
                     help='split_sf<SF>_test.npy — held-out 인덱스만 평가 (--max-symbols 0 필요)')
     ap.add_argument('--lpf', action='store_true',
                     help='입력에 ±BW/2 브릭월 LPF 적용 (LPF 로 학습한 모델 평가용)')
-    ap.add_argument('--boot', type=int, default=0,
-                    help='패킷 재표집 + 잡음 재추출 부트스트랩 복제 수')
+    ap.add_argument('--boot', type=int, default=1000,
+                    help='패킷 재표집 복제 수. 2단계라 거의 공짜다')
+    ap.add_argument('--noise-reals', type=int, default=10,
+                    help='잡음 실현 수 R. 1단계 비용이 여기 비례한다')
     ap.add_argument('--boot-u', type=int, default=10,
                     help='부트스트랩용 upsampling (U=10 은 U=100 과 동치, 10배 빠름)')
     ap.add_argument('--model-mode', choices=['train', 'eval'], default='train',
