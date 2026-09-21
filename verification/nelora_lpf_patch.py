@@ -167,14 +167,12 @@ def main(src, dst=None):
         return _c if len(_c) == 3 else (_c[0], _c[1], None)""")
 
     # --- 6) train(): 패킷 단위 분할 + 인덱스 저장 + 학습곡선
-    s = s.replace("""    datax, datay = load_data()
-    data = TensorDataset(torch.stack(datax), torch.tensor(datay, dtype=torch.long))
+    #   load_data() 호출부는 train()/test() 양쪽에 있다. 공백 차이에 안 걸리게
+    #   한 줄만 정확히 잡아 전부 바꾼다.
+    n_unpack = s.count("datax, datay = load_data()")
+    assert n_unpack >= 1, 'load_data() 호출부를 못 찾았다'
+    s = s.replace("datax, datay = load_data()", "datax, datay, datapk = load_data()")
 
-# Calculate class weights for imbalanced datasets""",
-"""    datax, datay, datapk = load_data()
-    data = TensorDataset(torch.stack(datax), torch.tensor(datay, dtype=torch.long))
-
-# Calculate class weights for imbalanced datasets""")
     s = s.replace("""# Split the dataset into 9:1 ratio
     train_size = int(0.9 * len(data))
     test_size = len(data) - train_size
