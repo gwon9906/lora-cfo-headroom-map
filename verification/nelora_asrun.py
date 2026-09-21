@@ -81,7 +81,10 @@ def main(root, sf, n_test, proto_frac, max_clean, U, nboot):
     print(', '.join(f'pkt{q}({a}/{b})' for q, (a, b) in worst))
 
     rng = np.random.default_rng(0)
-    snrs = [-6, -8, -10, -12, -14, -16, -18, -20, -22, -24]
+    # SF 가 1 오르면 처리이득이 약 3 dB 늘어 곡선이 통째로 내려간다.
+    # 고정 격자를 쓰면 고SF 에서 10% 를 못 만나 '교차 없음' 이 된다.
+    off = 3*(sf - 7)
+    snrs = [v - off for v in (-6, -8, -10, -12, -14, -16, -18, -20, -22, -24)]
 
     def sub(Y, L, P, mask, cap):
         Y, L, P = Y[mask], L[mask], P[mask]
