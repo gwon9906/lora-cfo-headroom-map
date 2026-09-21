@@ -232,7 +232,20 @@ def find_ckpt(ckpt_dir, pattern, explicit=None):
 
 
 class DNN:
-    def __init__(self, sf, ckpt_dir, P, device='cpu', mask_path=None, cls_path=None):
+    """그들 test() 는 .eval() 을 부르지 않는다 — train() 안 226~227행에만 있다.
+
+    모델에는 BatchNorm2d 8개와 Dropout(0.2)/(0.5) 가 있으므로, 그들 평가는
+      - BatchNorm 이 running statistics 가 아니라 '테스트 배치 통계' 를 쓰고
+      - Dropout 이 켜진 채로
+    돌아간다. 이 체크포인트에서는 train 모드가 eval 모드보다 1.5 dB 낫다.
+    Dropout 이 켜져 있는데도 그렇다는 것은 running BN 통계가 수렴하지 않았다는 뜻이다.
+
+    mode='train' 이 그들 파이프라인의 충실한 재현이고, 'eval' 이 통상적으로 올바른
+    추론 방식이다. 둘 다 잴 수 있게 해 둔다.
+    """
+
+    def __init__(self, sf, ckpt_dir, P, device='cpu', mask_path=None, cls_path=None,
+                 mode='train'):
         from model_components import maskCNNModel, classificationHybridModel
         N, M = P['N'], P['M']
         self.N, self.M, self.dev = N, M, device
@@ -255,8 +268,12 @@ class DNN:
                     f'  -> Google Drive 의 checkpoint/sf{sf}/ 에서 받거나,\n'
                     f'     --sf {ck_sf} 로 돌리고 --data-dir 도 SF{ck_sf} 데이터로 바꿀 것.')
             mdl.load_state_dict(sd, strict=True)
-            mdl.to(device).eval()
+            mdl.to(device)
+            mdl.train() if mode == 'train' else mdl.eval()
             print(f'  로드: {p}')
+        print(f'  모델 모드: {mode}'
+              + ('  (그들 test() 와 동일 — BatchNorm 이 배치 통계를 쓴다)'
+                 if mode == 'train' else '  (통상적 추론)'))
 
     def stft(self, x):
         """그들 perform_stft 그대로."""
@@ -292,7 +309,8 @@ def main(a):
             return
 
     dnn = (None if a.no_dnn else
-           DNN(a.sf, a.ckpt_dir, P, a.device, a.ckpt_mask, a.ckpt_cls))
+           DNN(a.sf, a.ckpt_dir, P, a.device, a.ckpt_mask, a.ckpt_cls,
+               a.model_mode))
     base_n = base_chirp_n(a.sf)
     snrs = [float(v) for v in a.snrs.split(',')] if a.snrs else list(range(-30, 1))
 
@@ -327,6 +345,7 @@ def main(a):
     out = dict(sf=a.sf, n_symbols=int(len(X)), filter_stat=stat,
                upsampling=a.upsampling, snrs=snrs, results=res,
                noise_mode=a.noise_mode, normalization=(not a.no_norm),
+               model_mode=a.model_mode,
                note='as-run: DNN saw ~90% of these symbols in training '
                     '(train/test split not reproducible; torch seed unset)')
     if dnn is not None:
@@ -364,6 +383,8 @@ if __name__ == '__main__':
     ap.add_argument('--snrs', type=str, default='10,5,0,-5,-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24',
                     help='10%% 교차 구간만 보면 충분하다')
     ap.add_argument('--no-dnn', action='store_true', help='체크포인트 없이 baseline 만')
+    ap.add_argument('--model-mode', choices=['train', 'eval'], default='train',
+                    help="train=그들 test() 와 동일(.eval() 미호출). eval=통상적 추론")
     ap.add_argument('--noise-mode', choices=['theirs', 'per-symbol'], default='theirs',
                     help="theirs=그들 코드 그대로(배치 공유 잡음)")
     ap.add_argument('--no-norm', action='store_true',
