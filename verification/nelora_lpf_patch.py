@@ -84,6 +84,11 @@ def main(src, dst=None):
     assert anchor in s, 'main.py 구조가 예상과 다르다 (define models)'
     s = s.replace(anchor, HEADER.strip('\n') + '\n\n' + anchor, 1)
 
+    # --- 1b) 그들 파서가 추가 인자를 거부하지 않게
+    assert 'opts = parser.parse_args()' in s, 'main.py 의 argparse 구조가 예상과 다르다'
+    s = s.replace('opts = parser.parse_args()',
+                  'opts, _ = parser.parse_known_args()   # 추가 인자 허용', 1)
+
     # --- 2) 체크포인트 디렉터리 분리
     s = s.replace("save_ckpt_dir = f'ckpt_sf{sf}'",
                   "save_ckpt_dir = f'ckpt_sf{sf}_' + ('lpf' if USE_LPF else 'plain')")
