@@ -41,8 +41,9 @@
 """
 import io, sys, os
 
-HEADER = '''
-# ============ 공정 비교용 추가 (nelora_lpf_patch.py 생성) ============
+# 플래그·시드: save_ckpt_dir 보다 앞에 와야 한다 (USE_LPF 를 거기서 쓴다)
+HEAD_A = '''
+# ===== 공정 비교용 (1/2): 플래그와 시드 =====
 import csv as _csv
 import argparse as _argparse
 
@@ -61,8 +62,12 @@ torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
+# ===========================================
+'''
 
-
+# LPF: num_classes / num_samples 가 정의된 뒤에 와야 한다
+HEAD_B = '''
+# ===== 공정 비교용 (2/2): 대역 필터 =====
 def brickwall_lpf(x):
     """+-BW/2 브릭월. OSF 와 텐서 모양은 유지, 대역 밖 잡음만 지운다."""
     X = torch.fft.fft(x, dim=-1)
@@ -71,7 +76,7 @@ def brickwall_lpf(x):
     mask[:keep] = True
     mask[-(num_classes - keep):] = True
     return torch.fft.ifft(X * mask, dim=-1)
-# ====================================================================
+# =======================================
 '''
 
 
@@ -79,15 +84,22 @@ def main(src, dst=None):
     dst = dst or os.path.join(os.path.dirname(src) or '.', 'main_fair.py')
     s = io.open(src, encoding='utf-8').read()
 
-    # --- 1) 헤더 삽입 (상수 정의 뒤, 모델 생성 앞)
-    anchor = "# define models"
-    assert anchor in s, 'main.py 구조가 예상과 다르다 (define models)'
-    s = s.replace(anchor, HEADER.strip('\n') + '\n\n' + anchor, 1)
-
-    # --- 1b) 그들 파서가 추가 인자를 거부하지 않게
+    # --- 1) 그들 파서가 추가 인자를 거부하지 않게
     assert 'opts = parser.parse_args()' in s, 'main.py 의 argparse 구조가 예상과 다르다'
     s = s.replace('opts = parser.parse_args()',
                   'opts, _ = parser.parse_known_args()   # 추가 인자 허용', 1)
+
+    # --- 1a) 플래그·시드: save_ckpt_dir 보다 앞이어야 한다 (거기서 USE_LPF 를 쓴다)
+    a1 = "batch_size = opts.batch_size"
+    assert a1 in s, 'main.py 구조가 예상과 다르다 (batch_size)'
+    i = s.index(a1)
+    j = s.index('\n', i)
+    s = s[:j+1] + HEAD_A.strip('\n') + '\n' + s[j+1:]
+
+    # --- 1b) LPF 함수: num_classes / num_samples 가 정의된 뒤여야 한다
+    a2 = "# define models"
+    assert a2 in s, 'main.py 구조가 예상과 다르다 (define models)'
+    s = s.replace(a2, HEAD_B.strip('\n') + '\n\n' + a2, 1)
 
     # --- 2) 체크포인트 디렉터리 분리
     s = s.replace("save_ckpt_dir = f'ckpt_sf{sf}'",
