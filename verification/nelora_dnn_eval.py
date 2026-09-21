@@ -309,12 +309,16 @@ def main(a):
     P = build_params(a.sf)
     print(f'SF{a.sf}  N={P["N"]}  M={P["M"]}  OSF={P["osf"]}')
 
+    from nelora_chirp import chirp_bank as _bank
+    Xbank = _bank(a.sf, 8)[0]
     X, y, stat, pk = load_data(P, a.data_dir, a.cache, a.max_symbols, a.upsampling)
+    X_all, y_all, held = X, y, None
     if a.only_idx:
         idx = np.load(a.only_idx)
         if a.max_symbols and len(X) < stat['kept']:
             raise SystemExit('--only-idx 는 --max-symbols 0 (전체) 에서만 쓸 것 — '
                              '부분표집하면 인덱스가 어긋난다')
+        held = np.zeros(len(X), dtype=bool); held[idx] = True
         X, y, pk = X[idx], y[idx], (pk[idx] if pk is not None else None)
         print(f'  held-out 만 평가: {a.only_idx} -> {len(X)}심볼')
     print(f'  평가 심볼 {len(X)}개')
@@ -334,11 +338,39 @@ def main(a):
                a.model_mode))
     base_n = base_chirp_n(a.sf)
     post_fn = (lambda Z: brickwall_lpf_np(Z, P)) if a.lpf else None
+
+    # --- 판정 기준선: 정렬된 MF. 정리가 예측하는 상한은 표준 RX 가 아니라 D3 이다.
+    #     DNN 은 잔여 CFO/타이밍을 학습으로 보정할 수 있고 그것은 정리 위반이 아니다.
+    Xn = Xbank/np.linalg.norm(Xbank, axis=1, keepdims=True)
+    ref = {}
+    if a.refs:
+        from nelora_stdrx import align_from_labels as _align
+        from nelora_cfo import apply_corr as _apply
+        from nelora_mf_test import empirical_prototypes as _emp, d_mf as _dmf
+        if held is not None:                      # held-out 밖 심볼로 프로토타입
+            Xp, yp = X_all[~held], y_all[~held]
+        else:
+            Xp, yp = X, y
+        g_tau, g_eps = _align(Xp.astype(np.complex128), yp, Xbank)
+        print(f'  기준선 정렬: tau={g_tau:+.2f} 샘플, eps={g_eps:+.4f} bin  '
+              f'(프로토타입 {len(Xp)}심볼)')
+        Pal = _apply(Xp.astype(np.complex128), g_tau, g_eps)
+        by = {c: [] for c in range(P['N'])}
+        for yv, c in zip(Pal, yp):
+            if len(by[c]) < 30:
+                by[c].append(yv)
+        Pemp = _emp(by, P['N'], P['M'])[0]
+        cov = float(np.mean([len(v) > 0 for v in by.values()]))
+        print(f'  경험 프로토타입 코드 커버리지 {cov*100:.0f}%'
+              + ('' if cov > 0.95 else '  ** 부족: D3 는 참고값 **'))
+        ref = {'D2_aligned': (lambda Y: _dmf(_apply(Y.astype(np.complex128), g_tau, g_eps), Xn)),
+               'D3_aligned': (lambda Y: _dmf(_apply(Y.astype(np.complex128), g_tau, g_eps), Pemp))}
     if a.lpf:
         print('  입력에 ±BW/2 브릭월 LPF 적용 (잡음 -> LPF -> 정규화, 학습과 동일 순서)')
     snrs = [float(v) for v in a.snrs.split(',')] if a.snrs else list(range(-30, 1))
 
-    arms = ['decode_loraphy', 'standard_rx'] + ([] if dnn is None else ['nelora_dnn'])
+    arms = (['decode_loraphy', 'standard_rx']
+            + ([] if dnn is None else ['nelora_dnn']) + list(ref))
     res = {k: {} for k in arms}
     rng = np.random.default_rng(1)
     print(f'\nSNR {snrs[0]:.0f} ~ {snrs[-1]:.0f} ({len(snrs)}점), 팔 {len(arms)}개')
@@ -351,6 +383,8 @@ def main(a):
             #  ^ 세 팔이 같은 텐서를 본다. 정규화는 DNN 에만 영향(나머지는 스케일 불변)
             pred = {'decode_loraphy': decode_loraphy_batch(Yn, P, a.upsampling),
                     'standard_rx': standard_rx(Yn, P, base_n)}
+            for _k, _f in ref.items():
+                pred[_k] = _f(Yn)
             if dnn is not None:
                 pred['nelora_dnn'] = dnn.predict(Yn)
             for k in arms:
@@ -451,6 +485,9 @@ if __name__ == '__main__':
     ap.add_argument('--snrs', type=str, default='10,5,0,-5,-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24',
                     help='10%% 교차 구간만 보면 충분하다')
     ap.add_argument('--no-dnn', action='store_true', help='체크포인트 없이 baseline 만')
+    ap.add_argument('--refs', action='store_true', default=True,
+                    help='정렬된 D2/D3 기준선도 함께 측정 (판정 상한)')
+    ap.add_argument('--no-refs', dest='refs', action='store_false')
     ap.add_argument('--only-idx', default=None,
                     help='split_sf<SF>_test.npy — held-out 인덱스만 평가 (--max-symbols 0 필요)')
     ap.add_argument('--lpf', action='store_true',
