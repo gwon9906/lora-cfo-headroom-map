@@ -156,7 +156,7 @@ def load_data(P, data_dir, cache, max_symbols=None, upsampling=100, verbose=True
     return X, y, stat, pk
 
 
-def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True):
+def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True, post=None):
     """그들 add_noise 를 그대로 옮긴다.
 
         amp = math.pow(0.1, snr/20) * torch.mean(torch.abs(dataY))   # 배치 스칼라
@@ -177,12 +177,16 @@ def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True):
         amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean()
         w = rng.standard_normal(Y.shape[1]) + 1j*rng.standard_normal(Y.shape[1])
         X = Y + (amp/np.sqrt(2))*w[None, :]
+        if post is not None:          # LPF 는 정규화 '앞' — 학습과 순서가 같아야 한다
+            X = post(X)
         if normalize:
             X = X/np.abs(X).mean()
     else:
         amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean(1, keepdims=True)
         w = rng.standard_normal(Y.shape) + 1j*rng.standard_normal(Y.shape)
         X = Y + (amp/np.sqrt(2))*w
+        if post is not None:
+            X = post(X)
         if normalize:
             X = X/np.abs(X).mean(1, keepdims=True)
     return X.astype(np.complex64)
@@ -306,6 +310,13 @@ def main(a):
     print(f'SF{a.sf}  N={P["N"]}  M={P["M"]}  OSF={P["osf"]}')
 
     X, y, stat, pk = load_data(P, a.data_dir, a.cache, a.max_symbols, a.upsampling)
+    if a.only_idx:
+        idx = np.load(a.only_idx)
+        if a.max_symbols and len(X) < stat['kept']:
+            raise SystemExit('--only-idx 는 --max-symbols 0 (전체) 에서만 쓸 것 — '
+                             '부분표집하면 인덱스가 어긋난다')
+        X, y, pk = X[idx], y[idx], (pk[idx] if pk is not None else None)
+        print(f'  held-out 만 평가: {a.only_idx} -> {len(X)}심볼')
     print(f'  평가 심볼 {len(X)}개')
 
     if a.selftest:
@@ -322,6 +333,9 @@ def main(a):
            DNN(a.sf, a.ckpt_dir, P, a.device, a.ckpt_mask, a.ckpt_cls,
                a.model_mode))
     base_n = base_chirp_n(a.sf)
+    post_fn = (lambda Z: brickwall_lpf_np(Z, P)) if a.lpf else None
+    if a.lpf:
+        print('  입력에 ±BW/2 브릭월 LPF 적용 (잡음 -> LPF -> 정규화, 학습과 동일 순서)')
     snrs = [float(v) for v in a.snrs.split(',')] if a.snrs else list(range(-30, 1))
 
     arms = ['decode_loraphy', 'standard_rx'] + ([] if dnn is None else ['nelora_dnn'])
@@ -333,9 +347,7 @@ def main(a):
         per = {k: {} for k in arms}          # 코드별 (macro 평균용)
         for i in range(0, len(X), a.batch):
             Yb, lb = X[i:i+a.batch], y[i:i+a.batch]
-            Yn = add_noise_theirs(Yb, s, rng, a.noise_mode, not a.no_norm)
-            if a.lpf:
-                Yn = brickwall_lpf_np(Yn, P)   # 학습 입력과 같은 대역으로
+            Yn = add_noise_theirs(Yb, s, rng, a.noise_mode, not a.no_norm, post_fn)
             #  ^ 세 팔이 같은 텐서를 본다. 정규화는 DNN 에만 영향(나머지는 스케일 불변)
             pred = {'decode_loraphy': decode_loraphy_batch(Yn, P, a.upsampling),
                     'standard_rx': standard_rx(Yn, P, base_n)}
@@ -369,9 +381,7 @@ def main(a):
                 rr = np.random.default_rng(70_000 + bi)      # 세 팔이 같은 잡음
                 ser = []
                 for sv in snrs:
-                    Yn = add_noise_theirs(Yb, sv, rr, a.noise_mode, not a.no_norm)
-                    if a.lpf:
-                        Yn = brickwall_lpf_np(Yn, P)
+                    Yn = add_noise_theirs(Yb, sv, rr, a.noise_mode, not a.no_norm, post_fn)
                     if nm == 'decode_loraphy':
                         pr = decode_loraphy_batch(Yn, P, a.boot_u)
                     elif nm == 'standard_rx':
@@ -441,6 +451,8 @@ if __name__ == '__main__':
     ap.add_argument('--snrs', type=str, default='10,5,0,-5,-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24',
                     help='10%% 교차 구간만 보면 충분하다')
     ap.add_argument('--no-dnn', action='store_true', help='체크포인트 없이 baseline 만')
+    ap.add_argument('--only-idx', default=None,
+                    help='split_sf<SF>_test.npy — held-out 인덱스만 평가 (--max-symbols 0 필요)')
     ap.add_argument('--lpf', action='store_true',
                     help='입력에 ±BW/2 브릭월 LPF 적용 (LPF 로 학습한 모델 평가용)')
     ap.add_argument('--boot', type=int, default=0,
