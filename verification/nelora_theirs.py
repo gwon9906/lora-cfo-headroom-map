@@ -51,7 +51,7 @@ def decode_loraphy(Y, down, N, U=100, chunk=CHUNK):
     return out
 
 
-def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True):
+def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True, post=None):
     """그들 add_noise 를 그대로 옮긴다.
 
         amp = math.pow(0.1, snr/20) * torch.mean(torch.abs(dataY))   # 배치 스칼라
@@ -72,15 +72,33 @@ def add_noise_theirs(Y, snr_db, rng, mode='theirs', normalize=True):
         amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean()
         w = rng.standard_normal(Y.shape[1]) + 1j*rng.standard_normal(Y.shape[1])
         X = Y + (amp/np.sqrt(2))*w[None, :]
+        if post is not None:
+            X = post(X)
         if normalize:
             X = X/np.abs(X).mean()
     else:
         amp = (10.0**(-snr_db/20.0))*np.abs(Y).mean(1, keepdims=True)
         w = rng.standard_normal(Y.shape) + 1j*rng.standard_normal(Y.shape)
         X = Y + (amp/np.sqrt(2))*w
+        if post is not None:
+            X = post(X)
         if normalize:
             X = X/np.abs(X).mean(1, keepdims=True)
     return X.astype(np.complex64)
+
+
+def add_noise_batched(Y, snr_db, rng, bs=16, mode='theirs', normalize=True, post=None):
+    """그들 DataLoader 배치 단위로 잡음을 건다.
+
+    그들 add_noise 는 **배치 하나마다** amp 스칼라와 (M,) 잡음 벡터를 뽑는다.
+    전체 집합에 한 번만 뽑으면 독립 실현이 배치 수만큼 줄어 분산이 폭발한다
+    (SF7 에서 CI 가 [+3.88,+4.48] -> [+2.35,+5.96] 로 벌어졌던 원인).
+    bs 는 그들 batch_size 와 같아야 한다.
+    """
+    out = np.empty_like(Y, dtype=np.complex64)
+    for i in range(0, len(Y), bs):
+        out[i:i+bs] = add_noise_theirs(Y[i:i+bs], snr_db, rng, mode, normalize, post)
+    return out
 
 
 def add_noise_mine(Y, snr_db, rng):

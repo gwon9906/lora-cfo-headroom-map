@@ -26,7 +26,7 @@ from nelora_mf_test import norm_rows, d_mf, empirical_prototypes, parse_raw_name
 from nelora_chirp import chirp_bank, base_chirp
 from nelora_cfo import apply_corr
 from nelora_stdrx import rx_standard, align_from_labels
-from nelora_theirs import decode_loraphy, add_noise_theirs, add_noise_mine
+from nelora_theirs import decode_loraphy, add_noise_batched, add_noise_mine
 
 THR = (10.0, 20.0, 30.0)
 
@@ -40,7 +40,7 @@ def fmt(c):
     return ''.join(f'{("없음" if c[t] is None else f"{c[t]:7.2f}"):>9}' for t in THR)
 
 
-def main(root, sf, n_test, proto_frac, max_clean, U, nboot):
+def main(root, sf, n_test, proto_frac, max_clean, U, nboot, a_bs=16):
     X, osf, M, N = chirp_bank(sf, 8)
     Xn = norm_rows(X); base_n = base_chirp(sf, 1); down = np.conj(X[0])
 
@@ -129,7 +129,7 @@ def main(root, sf, n_test, proto_frac, max_clean, U, nboot):
         for nm, fn, al in arms:
             rg = np.random.default_rng(1)
             Y0 = Yal if al else Yt
-            e = {s: (fn(add_noise_theirs(Y0, s, rg)) != Lt) for s in snrs}
+            e = {s: (fn(add_noise_batched(Y0, s, rg, a_bs)) != Lt) for s in snrs}
             store[nm] = e
             print(f'  {"":<26}{nm:<38}' + fmt(crossings(e, snrs)))
 
@@ -152,10 +152,10 @@ def main(root, sf, n_test, proto_frac, max_clean, U, nboot):
             for bi in range(nboot):
                 sel = np.concatenate([idx_by[i] for i in rgb.integers(0, len(upk), len(upk))])
                 r1 = np.random.default_rng(50_000 + bi)
-                ya = [(decode_loraphy(add_noise_theirs(Yt[sel], s, r1), down, N, U) != Lt[sel]).mean()*100
+                ya = [(decode_loraphy(add_noise_batched(Yt[sel], s, r1, a_bs), down, N, U) != Lt[sel]).mean()*100
                       for s in snrs]
                 r2 = np.random.default_rng(50_000 + bi)
-                yb = [(rx_standard(add_noise_theirs(Yal[sel], s, r2), base_n, osf, N, True) != Lt[sel]).mean()*100
+                yb = [(rx_standard(add_noise_batched(Yal[sel], s, r2, a_bs), base_n, osf, N, True) != Lt[sel]).mean()*100
                       for s in snrs]
                 for t in THR:
                     va, vb = cross(snrs, ya, t), cross(snrs, yb, t)
@@ -179,5 +179,7 @@ if __name__ == '__main__':
     ap.add_argument('--max-clean', type=int, default=30)
     ap.add_argument('--U', type=int, default=100)
     ap.add_argument('--boot', type=int, default=0)
+    ap.add_argument('--batch', type=int, default=16,
+                    help='그들 batch_size. 잡음이 이 단위로 공유된다')
     a = ap.parse_args()
-    main(a.root, a.sf, a.n, a.proto_frac, a.max_clean, a.U, a.boot)
+    main(a.root, a.sf, a.n, a.proto_frac, a.max_clean, a.U, a.boot, a.batch)
