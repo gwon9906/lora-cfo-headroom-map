@@ -483,13 +483,28 @@ def main(a):
         print(f'  SNR {s:+6.1f}  ' + '  '.join(
             f'{k}={res[k][s]["micro_acc"]*100:5.1f}%' for k in arms))
 
+    base_out = dict(sf=a.sf, n_symbols=int(len(X)), filter_stat=stat, bootstrap=None,
+                    upsampling=a.upsampling, snrs=snrs, results=res,
+                    noise_mode=a.noise_mode, normalization=(not a.no_norm),
+                    model_mode=a.model_mode, lpf=bool(a.lpf),
+                    note='as-run/held-out; 부트스트랩 전 중간 저장')
+    with open(a.out, 'w') as f:
+        json.dump(base_out, f, indent=2)
+    print(f'\n중간 저장: {a.out}  (부트스트랩 중단해도 이 표는 남는다)')
+
     if a.boot and dnn is not None:
         print(f'\n[부트스트랩] 패킷 재표집 + 잡음 재추출, {a.boot} 복제 (U={a.boot_u})')
         upk, inv = np.unique(pk, return_inverse=True)
         idx_by = [np.where(inv == i)[0] for i in range(len(upk))]
         rgb = np.random.default_rng(11)
         gaps = {k: [] for k in ('std-dnn', 'dnn-base', 'std-base')}
+        import time as _time
+        _t0 = _time.time()
         for bi in range(a.boot):
+            if bi and bi % 10 == 0:
+                _el = _time.time() - _t0
+                print(f'    {bi}/{a.boot} 복제  경과 {_el/60:.1f}분  '
+                      f'남은 예상 {_el/bi*(a.boot-bi)/60:.1f}분', flush=True)
             sel = np.concatenate([idx_by[i] for i in rgb.integers(0, len(upk), len(upk))])
             Yb, lb = X[sel], y[sel]
             cr = {}
