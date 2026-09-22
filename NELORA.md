@@ -56,6 +56,14 @@
 > 자기 baseline 보다 **0.53 dB 뒤지고**, 표준 수신기에는 0.82 dB 못 미친다.
 > 신경망이 벌던 이득의 정체가 대역 밖 잡음 배제였다는 뜻이다.
 
+![SF7 held-out SER 곡선](verification/results/fig1_ser.png)
+
+*그림 1 — 헤드라인(§5-4). SF7, 패킷 분리 held-out 18패킷 / 1353심볼, 그들 조건(배치 16
+단위 amp·공유 잡음, U=100, train 모드, 잡음 실현 10회 평균). 10% 선을 지나는 지점이
+−12.98 / −14.35 / −16.31 / −17.05 dB 다. 회색 점선(D3, 정렬된 경험적 MF)이 상한이고,
+표준 RX 는 학습도 정렬도 없이 그 0.74 dB 안까지 붙는다.*
+
+
 ---
 
 ## 1. 그들 평가 경로 — 소스에서 확인
@@ -489,6 +497,13 @@ decode_loraphy − 표준 RX   (대역제한)   +0.28 dB  [−0.14, +0.70]  0 �
 
 > **+3.33 dB 격차가 사라진다.**
 
+![대역제한 입력 전후](verification/results/fig2_bandlimit.png)
+
+*그림 2 — 같은 held-out 에서 **입력에만** ±BW/2 브릭월을 건다(§5-9 규약: 잡음 → LPF →
+정규화). 움직이는 것은 `decode_loraphy` 하나뿐이다. D2/D3 는 두 패널에서 거의 겹쳐
+보이므로 뺐다(표의 +0.03 dB).*
+
+
 그리고 **움직인 것은 `decode_loraphy` 하나뿐**이다. 표준 RX 는 이미 내부에서 같은 대역
 필터를 걸고, D2/D3 는 전대역 정합필터라 대역 밖 잡음을 원래 배제한다 — 필터를 한 번 더
 걸어도 바뀔 것이 없다(+0.00 / +0.03). 오직 대역 밖 잡음을 그대로 받던 팔만 3 dB 를 얻는다.
@@ -667,6 +682,12 @@ preamble 은 전부 code 0 이라 2D 지표가 **능선**이 된다:
 
 CI 폭이 0.6 dB 안쪽이다. §9-7 의 배치 단위 잡음 수정이 네 SF 전부에서 확인된다.
 
+![SF7~10 격차](verification/results/fig3_sf.png)
+
+*그림 3 — 위 표의 10/20/30% 열. as-run 조건(그들 필터·그들 잡음 규약·U=10, 아무도 정렬
+없음). 임계를 올릴수록 값이 내려가는 것은 바닥 효과다(§5 임계 스윕).*
+
+
 ### 필터 유무는 SF8~10 에서 무의미하다
 
 | SF | 필터 적용 (10%) | 필터 없음 (10%) |
@@ -736,7 +757,23 @@ held-out(§5-4), 잡음 재추출 부트스트랩(§5-7), SF 전반(§7), 대역
 ## 9. 정정 기록
 
 **열두 건을 정정했고 그중 둘은 결론을 철회했다.** 전부 같은 자리에서 나왔다 —
-**내가 재구현한 쪽**이다. 그들 코드가 틀렸던 적은 한 번도 없다.
+**내가 재구현한 쪽**이다.
+
+정확히 말하면: **우리 수치가 그들 것과 어긋났을 때, 원인은 예외 없이 이쪽 재구현이었다.**
+그들 코드가 무결하다는 뜻은 아니다 — 이 보고서가 짚은 것만 해도 여럿이다.
+
+| 그들 코드에서 짚은 것 | 어디 |
+|---|---|
+| `decode_loraphy` 에 데시메이션이 없다 (−3.3 dB) | §1-1, §5 |
+| `upsampling=100` 이 U=1 보다 0.69 dB 나쁘다 | §5-1, §6 |
+| `test()` 가 `.eval()` 을 부르지 않는다 — **그들 `train()` 은 부른다** | §5-5 |
+| `test()` 가 9:1 분할을 쓰지 않고 전량 평가한다 (저자들도 README 에 명시) | §1-4 |
+| `add_noise` 가 배치 전체에 같은 잡음 벡터를 브로드캐스트한다 | §9-6 |
+| `load_data` 의 필터 게이트키퍼가 baseline 자신이다 | §1-2 |
+
+이들은 **버그라기보다 설계 선택이거나 방법론 문제**다. 그래서 "틀렸다" 가 아니라
+"이런 선택을 했고 그 대가가 이만큼이다" 로 쓴다. 반면 아래 열두 건은 그들 결과를
+재현하려다 이쪽이 낸 것이고, 그들 스크립트를 그대로 돌려 대조해 잡았다.
 
 | # | 무엇 | 어디 | 라운드 |
 |---|---|---|---|
@@ -866,6 +903,7 @@ python nelora_theirs.py ../NeLoRa_Dataset/7 --sf 7 --boot 0   # 축 차이, U �
 python nelora_asrun.py ../NeLoRa_Dataset/7 --sf 7 --n 3000    # 핵심: as-run 재현
 python nelora_regen.py ../NeLoRa_Dataset --sfs 7,8,9,10       # 브릭월/축퇴/밀린패킷/정렬민감도
 python nelora_stdrx.py sweep ../NeLoRa_Dataset --sfs 7,8,9,10 # SF 일괄
+python nelora_figs.py                                         # results/*.json -> 그림 1~3
 
 # 그들 소스 (비교 대상)
 git clone --depth 1 https://github.com/daibiaoxuwu/NeLoRa_Dataset.git
@@ -879,6 +917,9 @@ git clone --depth 1 https://github.com/daibiaoxuwu/NeLoRa_Dataset.git
 | `nelora_stdrx.py` | 표준 수신기, 이상 신호 검사, SF 일괄, 부트스트랩 |
 | `nelora_regen.py` | 브릭월 손실, 축퇴, 밀린 패킷, 정렬 민감도 |
 | `nelora_floor.py` `nelora_sync.py` `nelora_cfo.py` `nelora_cfo2.py` `nelora_fair.py` | 초판 분석 (cumsum 생성기) |
+| `nelora_dnn_eval.py` | **그들 저장소 안에서 돌리는 단일 파일 평가기** (DNN·baseline·표준RX·D2/D3 동시, held-out, 부트스트랩) |
+| `nelora_lpf_patch.py` | 그들 `main.py` → `main_fair.py` 생성 (대역제한 학습, 패킷 분할, 곡선 CSV) |
+| `nelora_figs.py` | 저장된 JSON 에서 그림 1~3 생성 |
 | `nelora_mf_test.py` | D1/D2/D3 + `raw` 모드. `ideal_chirps` 사용 금지 |
 
 ---
