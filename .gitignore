@@ -8,3 +8,6 @@ NeLoRa_Dataset/
 
 # NELoRa DNN 체크포인트 (수십 MB, 재배포 대상 아님)
 checkpoint/
+
+# 캐시 (재생성 가능, 100MB+)
+verification/results/cache_*.npz

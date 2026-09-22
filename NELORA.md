@@ -63,6 +63,12 @@
 −12.98 / −14.35 / −16.31 / −17.05 dB 다. 회색 점선(D3, 정렬된 경험적 MF)이 상한이고,
 표준 RX 는 학습도 정렬도 없이 그 0.74 dB 안까지 붙는다.*
 
+*축은 포화까지 그린다 — −34 dB 에서 SER 이 97~99% 로, 랜덤 추측(1−1/128 = 99.2%) 에
+닿는다. 고전 팔은 `nelora_split.py` 로 같은 held-out 을 복원해 그 격자로 다시 쟀고
+(`ext_sf7_plain.json`), 겹치는 SNR 에서 원래 측정과 일치한다(−24 dB 에서 82.5% 대
+82.5%, 표준 RX 는 63.0% 대 63.4% — 잡음 실현 차). **DNN 팔만 −24 dB 까지다** — torch 가
+필요해 그들 저장소에서 따로 돌려야 하고, 아직 확장하지 않았다.*
+
 
 ---
 
@@ -501,7 +507,8 @@ decode_loraphy − 표준 RX   (대역제한)   +0.28 dB  [−0.14, +0.70]  0 �
 
 *그림 2 — 같은 held-out 에서 **입력에만** ±BW/2 브릭월을 건다(§5-9 규약: 잡음 → LPF →
 정규화). 움직이는 것은 `decode_loraphy` 하나뿐이다. D2/D3 는 두 패널에서 거의 겹쳐
-보이므로 뺐다(표의 +0.03 dB).*
+보이므로 뺐다(표의 +0.03 dB). 두 팔 모두 신경망을 쓰지 않으므로 −34 dB 까지 전부
+측정했다 — 오른쪽 패널은 두 곡선이 포화 구간까지 겹쳐 간다.*
 
 
 그리고 **움직인 것은 `decode_loraphy` 하나뿐**이다. 표준 RX 는 이미 내부에서 같은 대역
@@ -903,6 +910,11 @@ python nelora_theirs.py ../NeLoRa_Dataset/7 --sf 7 --boot 0   # 축 차이, U �
 python nelora_asrun.py ../NeLoRa_Dataset/7 --sf 7 --n 3000    # 핵심: as-run 재현
 python nelora_regen.py ../NeLoRa_Dataset --sfs 7,8,9,10       # 브릭월/축퇴/밀린패킷/정렬민감도
 python nelora_stdrx.py sweep ../NeLoRa_Dataset --sfs 7,8,9,10 # SF 일괄
+python nelora_split.py --data-dir ../NeLoRa_Dataset/7          # held-out 분할 복원 (torch 불필요)
+python nelora_dnn_eval.py --sf 7 --data-dir ../NeLoRa_Dataset/7 \
+       --cache results/cache_sf7.npz --only-idx results/split_sf7_test.npy \
+       --no-dnn --boot 0 --snrs 10,5,0,-5,-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24,-26,-28,-30,-32,-34 \
+       --out results/ext_sf7_plain.json                        # 포화까지 (고전 팔, 약 8분)
 python nelora_figs.py                                         # results/*.json -> 그림 1~3
 
 # 그들 소스 (비교 대상)
@@ -919,6 +931,7 @@ git clone --depth 1 https://github.com/daibiaoxuwu/NeLoRa_Dataset.git
 | `nelora_floor.py` `nelora_sync.py` `nelora_cfo.py` `nelora_cfo2.py` `nelora_fair.py` | 초판 분석 (cumsum 생성기) |
 | `nelora_dnn_eval.py` | **그들 저장소 안에서 돌리는 단일 파일 평가기** (DNN·baseline·표준RX·D2/D3 동시, held-out, 부트스트랩) |
 | `nelora_lpf_patch.py` | 그들 `main.py` → `main_fair.py` 생성 (대역제한 학습, 패킷 분할, 곡선 CSV) |
+| `nelora_split.py` | held-out 패킷 분할을 torch 없이 복원 (18패킷/1353심볼) |
 | `nelora_figs.py` | 저장된 JSON 에서 그림 1~3 생성 |
 | `nelora_mf_test.py` | D1/D2/D3 + `raw` 모드. `ideal_chirps` 사용 금지 |
 
