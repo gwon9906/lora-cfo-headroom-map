@@ -1,8 +1,36 @@
 # 검토 요청 — NELoRa 재검증 (3라운드)
 
-2026-09-22 · 전체 내용은 `README_NELORA.md` · 2라운드 이전 기록은 이 문서 뒤쪽
+2026-09-22 · 전체 내용은 `NELORA.md` · 2라운드 이전 기록은 이 문서 뒤쪽
 
 **상태: 모든 항목 닫힘.** 대역제한 입력 DNN 까지 수렴 확인 후 측정 완료 (§5).
+
+### 문서 구성
+
+| 파일 | 역할 |
+|---|---|
+| `NELORA.md` | 정식 보고서 — 측정·방법·한계·정정 기록 |
+| **`NELORA_REVIEW.md`** | **이 문서.** 최신 검토 패킷. 파일명에 날짜를 붙이지 않는다 |
+| `NELORA_HISTORY.md` | 지난 라운드 기록 (숫자는 그 시점 것이므로 인용 금지) |
+| `verification/` | 스크립트와 결과 JSON. `results/` 에 측정본, `nelora_dnn_report.py` 로 읽는다 |
+
+### 남은 작업
+
+- **SF8/9/10 as-run 재측정** — 잡음 규약 두 버그(§1)를 고친 뒤 재실행 중.
+  `verification/runsf_final.sh`. 끝나면 `NELORA.md` §7 을 갱신한다.
+- 브릭월을 실제 FIR(`scipy.signal.firwin`, 64~128탭)로 바꿔 "+3 dB 는 상한에 가깝다" 를
+  측정값으로 만들기 (선택).
+- 대역제한 팔의 CI — SNR 격자를 −10 dB 이하로 좁혀 재실행하면 얻을 수 있다 (§5, 각 ~10분).
+
+### 그들 소스를 다시 받아야 할 때
+
+```bash
+git clone --depth 1 https://github.com/daibiaoxuwu/NeLoRa_Dataset.git   # Bench, 우리가 쓰는 릴리스
+git clone --depth 1 https://github.com/AIoT-MLSys-Lab/NELoRa.git        # SenSys, MATLAB 평가 행렬
+```
+
+SenSys 쪽 `matlab/evaluation/*.mat` 에 그들 SF7 곡선이 있다 (`error_matrix` 는 이름과
+달리 **정확도**다 — `evaluation.m` 이 `1-error_matrix` 를 그린다). 체크포인트·데이터셋은
+Bench README 의 Google Drive 링크.
 
 ---
 
