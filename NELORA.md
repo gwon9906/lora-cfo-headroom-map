@@ -917,6 +917,18 @@ python nelora_dnn_eval.py --sf 7 --data-dir ../NeLoRa_Dataset/7 \
        --out results/ext_sf7_plain.json                        # 포화까지 (고전 팔, 약 8분)
 python nelora_figs.py                                         # results/*.json -> 그림 1~3
 
+# DNN 팔 (torch 필요 — WSL, 그들 저장소 안에서)
+#   그림 1 의 주황 곡선을 −34 dB 까지 채운다. 헤드라인 JSON 을 만든 명령과 같은 조건에
+#   SNR 격자만 늘렸다(--no-refs 로 D2/D3 를 빼면 빨리 끝난다).
+cd ~/LoRa/NeLoRa_Dataset
+python nelora_dnn_eval.py --sf 7 --batch 16 --max-symbols 0 \
+  --noise-reals 10 --boot 0 --no-refs --model-mode train \
+  --data-dir ~/LoRa/data/7/ --cache ~/LoRa/cache_sf7_full.npz \
+  --ckpt-dir ckpt_sf7_plain --only-idx split_sf7_test.npy \
+  --snrs 10,5,0,-5,-10,-12,-14,-15,-16,-17,-18,-19,-20,-22,-24,-26,-28,-30,-32,-34 \
+  --out ext_sf7_dnn.json
+# 나온 파일을 verification/results/ 에 두고 nelora_figs.py 를 다시 돌리면 자동으로 쓰인다.
+
 # 그들 소스 (비교 대상)
 git clone --depth 1 https://github.com/daibiaoxuwu/NeLoRa_Dataset.git
 ```
