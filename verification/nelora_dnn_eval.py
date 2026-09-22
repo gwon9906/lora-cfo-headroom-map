@@ -160,11 +160,18 @@ def d_mf_np(Y, bank):
 
 
 def cross_np(xs, ys, t=10.0):
-    """SER 곡선이 임계 t 를 지나는 SNR (선형보간)."""
+    """SER 곡선이 임계 t 를 지나는 SNR (선형보간).
+
+    ** 마지막 교차를 쓴다. ** 학습 SNR 범위 밖(예: +10 dB)에서 신경망이 무너지면
+    곡선이 단조롭지 않아 앞쪽에 가짜 교차가 생긴다. 실제로 LPF 팔이 +10 dB 에서
+    4% 바닥을 보였고(학습은 -30~0 dB), 첫 교차를 쓰면 부트스트랩 꼬리가 -9 dB 까지
+    늘어났다. 임계 부근(저SNR 쪽)은 단조로우므로 마지막 교차가 옳다.
+    """
+    hit = None
     for i in range(len(xs) - 1):
         if (ys[i] - t)*(ys[i+1] - t) <= 0 and ys[i] != ys[i+1]:
-            return xs[i] + (t - ys[i])*(xs[i+1] - xs[i])/(ys[i+1] - ys[i])
-    return None
+            hit = xs[i] + (t - ys[i])*(xs[i+1] - xs[i])/(ys[i+1] - ys[i])
+    return hit
 
 
 def brickwall_lpf_np(Y, P):
