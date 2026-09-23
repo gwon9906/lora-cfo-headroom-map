@@ -7,8 +7,10 @@
   fig3_sf.png         SF7~10 격차
 
 규칙:
-  * **축은 그들 그림을 따른다** — 선형 y(0~1), x −40~−10 dB. 재검증 논문이므로 독자가
-    두 그림을 겹쳐 볼 수 있어야 한다. 한 번 semilogy 로 바꿨다가 되돌렸다: 주장이
+  * **축은 그들 그림을 따른다** — 선형 y(0~1), x 는 −10 dB 까지. 왼쪽 끝은 **측정한
+    곳까지**만 그린다(지금은 −34 dB) — 축만 늘리면 선이 끊긴 것처럼 보인다.
+    재검증 논문이므로 독자가 두 그림을 겹쳐 볼 수 있어야 한다. 한 번 semilogy 로
+    바꿨다가 되돌렸다: 주장이
     10% 교차점 하나라 로그축의 장점(저SER 확대)을 이 보고서는 쓰지 않고, 2페이지
     원고에서 작게 들어갈 때 선형이 축소에 강하다.
   * **읽는 방법만 개선한다.** 그들 그림에 없는 것 네 가지 —
@@ -31,7 +33,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 R = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
-XLO, XHI, THR = -40, -10, 0.10
+XHI, THR = -10, 0.10   # x 왼쪽 끝은 측정한 곳까지 (데이터에서 정한다)
 
 # 색 + 선 스타일을 같이 다르게 준다 (흑백 인쇄).
 STY = {
@@ -68,7 +70,7 @@ def crossing(xs, ys, thr=THR):
 
 def plot_arms(ax, ser, keys, short=()):
     """곡선을 그리고 교차점 목록을 돌려준다."""
-    lo, cross = -8, []
+    lo, cross = XHI, []
     for k in keys:
         if k not in ser:
             continue
@@ -84,10 +86,10 @@ def plot_arms(ax, ser, keys, short=()):
     return lo, cross
 
 
-def style(ax, title, xlo=None, n_classes=128, guess=True):
+def style(ax, title, xlo, n_classes=128, guess=True):
     ax.set_ylim(0, 1.0)
-    ax.set_xlim(XLO, XHI)
-    ax.set_xticks(range(XLO, XHI + 1, 5))
+    ax.set_xlim(xlo, XHI)
+    ax.set_xticks([t for t in range(int(np.ceil(xlo/5))*5, XHI + 1, 5)])
     ax.set_yticks([i/5 for i in range(6)])
     ax.axhline(THR, ls=':', lw=1.1, color='0.55', zorder=1)
     ax.text(XHI - .3, THR + .015, '10% SER ', va='bottom', ha='right',
@@ -128,8 +130,8 @@ def fig1():
         short = ('nelora_dnn',)
 
     fig, ax = plt.subplots(figsize=(7.0, 4.6))
-    _, cross = plot_arms(ax, ser, ORDER, short)
-    style(ax, 'SF7, held-out packets — their conditions, same batch')
+    xlo, cross = plot_arms(ax, ser, ORDER, short)
+    style(ax, 'SF7, held-out packets — their conditions, same batch', xlo)
     mark_crossings(ax, cross)
     ax.legend(fontsize=8, loc='upper right', bbox_to_anchor=(.995, .93), framealpha=.95)
     fig.tight_layout(); fig.savefig(os.path.join(R, 'fig1_ser.png'), dpi=200)
@@ -143,11 +145,12 @@ def fig2():
              else 'dnn_sf7_heldout_lpf.json')
     titles = ['Full-band input', 'Band-limited input (+-BW/2)']
     fig, axes = plt.subplots(1, 2, figsize=(10.2, 4.4), sharey=True)
-    cr = []
+    xlo, cr = XHI, []
     for ax, ser in zip(axes, (a, b)):
-        cr.append(plot_arms(ax, ser, ('decode_loraphy', 'standard_rx'))[1])
+        lo, c = plot_arms(ax, ser, ('decode_loraphy', 'standard_rx'))
+        xlo = min(xlo, lo); cr.append(c)
     for ax, t, c in zip(axes, titles, cr):
-        style(ax, t)
+        style(ax, t, xlo)
         mark_crossings(ax, c)
     axes[1].set_ylabel('')
     axes[0].legend(fontsize=8, loc='lower left', framealpha=.95)
