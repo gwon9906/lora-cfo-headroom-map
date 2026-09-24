@@ -1,0 +1,48 @@
+SF7  N=128  M=1024  OSF=8
+  held-out 만 평가: results/split_sf7_test.npy -> 1353심볼
+  평가 심볼 1353개
+
+[자체검사] 벡터화 decode_loraphy 가 원문과 같은가
+  일치 64/64  OK
+  기준선 정렬: tau=+1.00 샘플, eps=+0.1250 bin  (프로토타입 12361심볼)
+  경험 프로토타입 코드 커버리지 100%
+  원본 LoRaPHY 팔 추가: 브릭월판 · FIR판 · LPF 없는 판(fast_mode)
+
+[1단계] 잡음 실현 10개 × SNR 15점 × 팔 7개  (심볼 1353, 배치 16)
+  실현 1/10  경과 0.4분  남은 예상 3.5분
+  실현 2/10  경과 0.8분  남은 예상 3.1분
+  실현 3/10  경과 1.2분  남은 예상 2.7분
+  실현 4/10  경과 1.6분  남은 예상 2.3분
+  실현 5/10  경과 1.9분  남은 예상 1.9분
+  실현 6/10  경과 2.3분  남은 예상 1.6분
+  실현 7/10  경과 2.7분  남은 예상 1.2분
+  실현 8/10  경과 3.2분  남은 예상 0.8분
+  실현 9/10  경과 3.6분  남은 예상 0.4분
+  실현 10/10  경과 4.0분
+  SNR  +10.0  decode_loraphy=100.0%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%  loraphy_orig=100.0%  loraphy_orig_fir=100.0%  loraphy_nolpf=100.0%
+  SNR   +5.0  decode_loraphy=100.0%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%  loraphy_orig=100.0%  loraphy_orig_fir=100.0%  loraphy_nolpf=100.0%
+  SNR   +0.0  decode_loraphy=100.0%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%  loraphy_orig=100.0%  loraphy_orig_fir=100.0%  loraphy_nolpf=100.0%
+  SNR   -5.0  decode_loraphy= 99.5%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%  loraphy_orig=100.0%  loraphy_orig_fir=100.0%  loraphy_nolpf= 99.4%
+  SNR  -10.0  decode_loraphy= 97.1%  standard_rx= 99.8%  D2_aligned=100.0%  D3_aligned=100.0%  loraphy_orig= 99.9%  loraphy_orig_fir= 99.9%  loraphy_nolpf= 96.8%
+  SNR  -12.0  decode_loraphy= 93.3%  standard_rx= 99.4%  D2_aligned= 99.7%  D3_aligned= 99.7%  loraphy_orig= 99.3%  loraphy_orig_fir= 99.3%  loraphy_nolpf= 92.7%
+  SNR  -14.0  decode_loraphy= 86.6%  standard_rx= 97.0%  D2_aligned= 98.3%  D3_aligned= 98.3%  loraphy_orig= 96.7%  loraphy_orig_fir= 96.9%  loraphy_nolpf= 86.3%
+  SNR  -15.0  decode_loraphy= 81.6%  standard_rx= 94.7%  D2_aligned= 96.3%  D3_aligned= 96.4%  loraphy_orig= 94.0%  loraphy_orig_fir= 94.1%  loraphy_nolpf= 80.9%
+  SNR  -16.0  decode_loraphy= 76.5%  standard_rx= 91.3%  D2_aligned= 93.3%  D3_aligned= 93.5%  loraphy_orig= 89.9%  loraphy_orig_fir= 90.2%  loraphy_nolpf= 75.5%
+  SNR  -17.0  decode_loraphy= 71.5%  standard_rx= 87.1%  D2_aligned= 89.9%  D3_aligned= 90.2%  loraphy_orig= 85.5%  loraphy_orig_fir= 86.0%  loraphy_nolpf= 71.1%
+  SNR  -18.0  decode_loraphy= 65.8%  standard_rx= 82.7%  D2_aligned= 85.6%  D3_aligned= 86.2%  loraphy_orig= 81.3%  loraphy_orig_fir= 82.0%  loraphy_nolpf= 64.9%
+  SNR  -19.0  decode_loraphy= 58.4%  standard_rx= 78.4%  D2_aligned= 81.1%  D3_aligned= 81.4%  loraphy_orig= 76.1%  loraphy_orig_fir= 76.9%  loraphy_nolpf= 56.9%
+  SNR  -20.0  decode_loraphy= 49.9%  standard_rx= 72.4%  D2_aligned= 76.2%  D3_aligned= 76.6%  loraphy_orig= 69.6%  loraphy_orig_fir= 70.1%  loraphy_nolpf= 48.7%
+  SNR  -22.0  decode_loraphy= 31.5%  standard_rx= 57.0%  D2_aligned= 61.1%  D3_aligned= 62.2%  loraphy_orig= 53.6%  loraphy_orig_fir= 54.3%  loraphy_nolpf= 30.8%
+  SNR  -24.0  decode_loraphy= 17.5%  standard_rx= 37.0%  D2_aligned= 42.7%  D3_aligned= 43.6%  loraphy_orig= 34.0%  loraphy_orig_fir= 34.4%  loraphy_nolpf= 17.2%
+
+중간 저장: results/loraphy_orig.json
+[2단계] 패킷 재표집 1000 복제 — 저장된 정오답 인덱싱만
+  격차                                       중앙값                95% CI
+  decode_loraphy − standard_rx             +3.33  [ +2.67,  +4.02]  유의
+  decode_loraphy − D3_aligned              +4.06  [ +3.46,  +4.73]  유의
+  decode_loraphy − loraphy_orig            +3.02  [ +2.49,  +3.65]  유의
+  loraphy_orig − standard_rx             +0.30  [ -0.08,  +0.73]  0 과 구별 안 됨
+  loraphy_orig − loraphy_nolpf           -3.16  [ -3.87,  -2.47]  유의
+  decode_loraphy − loraphy_orig_fir        +3.10  [ +2.59,  +3.81]  유의
+
+저장: results/loraphy_orig.json  <- 이 파일만 가져오면 된다

@@ -1,0 +1,39 @@
+SF7  N=128  M=1024  OSF=8
+  held-out 만 평가: results/split_sf7_test.npy -> 1353심볼
+  평가 심볼 1353개
+
+[자체검사] 벡터화 decode_loraphy 가 원문과 같은가
+  일치 64/64  OK
+  기준선 정렬: tau=+1.00 샘플, eps=+0.1250 bin  (프로토타입 12361심볼)
+  경험 프로토타입 코드 커버리지 100%
+
+[1단계] 잡음 실현 10개 × SNR 15점 × 팔 4개  (심볼 1353, 배치 16)
+  실현 1/10  경과 0.3분  남은 예상 3.0분
+  실현 2/10  경과 0.7분  남은 예상 2.7분
+  실현 3/10  경과 1.0분  남은 예상 2.4분
+  실현 4/10  경과 1.3분  남은 예상 2.0분
+  실현 5/10  경과 1.7분  남은 예상 1.7분
+  실현 6/10  경과 2.0분  남은 예상 1.3분
+  실현 7/10  경과 2.3분  남은 예상 1.0분
+  실현 8/10  경과 2.6분  남은 예상 0.7분
+  실현 9/10  경과 2.9분  남은 예상 0.3분
+  실현 10/10  경과 3.2분
+  SNR  +10.0  decode_loraphy=100.0%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%
+  SNR   +5.0  decode_loraphy=100.0%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%
+  SNR   +0.0  decode_loraphy=100.0%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%
+  SNR   -5.0  decode_loraphy= 99.5%  standard_rx=100.0%  D2_aligned=100.0%  D3_aligned=100.0%
+  SNR  -10.0  decode_loraphy= 97.1%  standard_rx= 99.8%  D2_aligned=100.0%  D3_aligned=100.0%
+  SNR  -12.0  decode_loraphy= 93.3%  standard_rx= 99.4%  D2_aligned= 99.7%  D3_aligned= 99.7%
+  SNR  -14.0  decode_loraphy= 86.6%  standard_rx= 97.0%  D2_aligned= 98.3%  D3_aligned= 98.3%
+  SNR  -15.0  decode_loraphy= 81.6%  standard_rx= 94.7%  D2_aligned= 96.3%  D3_aligned= 96.4%
+  SNR  -16.0  decode_loraphy= 76.5%  standard_rx= 91.3%  D2_aligned= 93.3%  D3_aligned= 93.5%
+  SNR  -17.0  decode_loraphy= 71.5%  standard_rx= 87.1%  D2_aligned= 89.9%  D3_aligned= 90.2%
+  SNR  -18.0  decode_loraphy= 65.8%  standard_rx= 82.7%  D2_aligned= 85.6%  D3_aligned= 86.2%
+  SNR  -19.0  decode_loraphy= 58.4%  standard_rx= 78.4%  D2_aligned= 81.1%  D3_aligned= 81.4%
+  SNR  -20.0  decode_loraphy= 49.9%  standard_rx= 72.4%  D2_aligned= 76.2%  D3_aligned= 76.6%
+  SNR  -22.0  decode_loraphy= 31.5%  standard_rx= 57.0%  D2_aligned= 61.1%  D3_aligned= 62.2%
+  SNR  -24.0  decode_loraphy= 17.5%  standard_rx= 37.0%  D2_aligned= 42.7%  D3_aligned= 43.6%
+
+중간 저장: results/d3_ctrl.json
+
+저장: results/d3_ctrl.json  <- 이 파일만 가져오면 된다

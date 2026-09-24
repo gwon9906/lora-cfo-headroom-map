@@ -36,7 +36,7 @@ model_components.py 와 같은 폴더여야 한다.
 
   # 결과 result_sf7.json 만 가져오면 된다.
 """
-import os, json, math, argparse, random
+import os, json, math, argparse, random, hashlib, subprocess, time
 import numpy as np
 # torch 는 DNN 팔에서만 필요하다. --no-dnn 이면 없어도 돌아간다.
 from scipy.signal import chirp
@@ -197,6 +197,34 @@ def standard_rx(Y, P, base_n):
 
 
 # -------------------------------------------------- 데이터 (그들 방식)
+def provenance(mods=('nelora_dnn_eval.py',)):
+    """이 측정을 낸 코드를 결과 안에 못박는다 (§9-16).
+
+    결과 파일이 쓰인 뒤 스크립트를 고치면 기록값의 출처를 잃는다 — 한 번 겪었다.
+    파일 해시와 git 상태를 함께 남기면 "그때 무엇이 돌았나" 가 사후에도 답해진다.
+    git_dirty=True 면 커밋되지 않은 수정 위에서 잰 것이라 해시로만 식별된다.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = {}
+    for m in mods:
+        fp = os.path.join(here, m)
+        if os.path.exists(fp):
+            with open(fp, 'rb') as g:
+                out[m] = hashlib.sha256(g.read()).hexdigest()[:16]
+    try:
+        r = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=here,
+                           capture_output=True, text=True, timeout=10)
+        d = subprocess.run(['git', 'status', '--porcelain'], cwd=here,
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            out['git_head'] = r.stdout.strip()[:12]
+            out['git_dirty'] = bool(d.stdout.strip())
+    except Exception:
+        pass
+    out['run_utc'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    return out
+
+
 def load_data(P, data_dir, cache, max_symbols=None, upsampling=100, verbose=True):
     """그들 load_data(): decode_loraphy 가 무잡음에서 맞히는 심볼만 남긴다."""
     if cache and os.path.exists(cache):
@@ -407,7 +435,7 @@ def main(a):
 
     Xbank = chirp_bank_np(a.sf, 8)
     X, y, stat, pk = load_data(P, a.data_dir, a.cache, a.max_symbols, a.upsampling)
-    X_all, y_all, held = X, y, None
+    X_all, y_all, pk_all, held = X, y, pk, None
     if a.only_idx:
         idx = np.load(a.only_idx)
         if len(X) != stat['kept']:
@@ -443,9 +471,20 @@ def main(a):
     ref = {}
     if a.refs:
         if held is not None:                      # held-out 밖 심볼로 프로토타입
-            Xp, yp = X_all[~held], y_all[~held]
+            Xp, yp, pkp = X_all[~held], y_all[~held], (
+                pk_all[~held] if pk_all is not None else None)
         else:
-            Xp, yp = X, y
+            Xp, yp, pkp = X, y, pk
+        # 통째로 밀린 패킷이 프로토타입을 오염시키는지 재기 위한 제외 옵션(§9).
+        # 필터가 이미 대부분을 버리지만, 밀린 패킷에서 살아남은 심볼은 들어온다.
+        if a.proto_exclude:
+            drop = set(s.strip() for s in a.proto_exclude.split(',') if s.strip())
+            if pkp is None:
+                raise SystemExit('--proto-exclude 는 패킷 id 가 있어야 한다')
+            m = np.array([str(q) not in drop for q in pkp])
+            print(f'  프로토타입에서 패킷 제외: {sorted(drop)} '
+                  f'-> {len(Xp)} - {int((~m).sum())} = {int(m.sum())}심볼')
+            Xp, yp, pkp = Xp[m], yp[m], pkp[m]
         g_tau, g_eps = align_from_labels_np(Xp.astype(np.complex128), yp, Xbank)
         print(f'  기준선 정렬: tau={g_tau:+.2f} 샘플, eps={g_eps:+.4f} bin  '
               f'(프로토타입 {len(Xp)}심볼)')
@@ -460,6 +499,17 @@ def main(a):
               + ('' if cov > 0.95 else '  ** 부족: D3 는 참고값 **'))
         ref = {'D2_aligned': (lambda Y: d_mf_np(apply_corr_np(Y.astype(np.complex128), g_tau, g_eps), Xn)),
                'D3_aligned': (lambda Y: d_mf_np(apply_corr_np(Y.astype(np.complex128), g_tau, g_eps), Pemp))}
+    if a.loraphy_orig:
+        # 원본 LoRaPHY (Xia et al. TOSN'22) 경로. NELoRa-Bench README 가 자기
+        # baseline 을 이 구현의 포팅이라고 밝히는데, 포팅본에는 de-chirp 앞의
+        # 대역제한·리샘플 두 줄이 없다. 그 두 줄만 되살린 팔이다.
+        from loraphy_orig import decode_loraphy_orig as _lpo
+        _osf = P['osf']
+        ref['loraphy_orig'] = (lambda Y: _lpo(Y, a.sf, _osf, 10, 'brick'))
+        ref['loraphy_orig_fir'] = (lambda Y: _lpo(Y, a.sf, _osf, 10, 'fir'))
+        ref['loraphy_nolpf'] = (lambda Y: _lpo(Y, a.sf, _osf, 10, 'fast'))
+        print('  원본 LoRaPHY 팔 추가: 브릭월판 · FIR판 · LPF 없는 판(fast_mode)')
+
     if a.lpf:
         print('  입력에 ±BW/2 브릭월 LPF 적용 (잡음 -> LPF -> 정규화, 학습과 동일 순서)')
     snrs = [float(v) for v in a.snrs.split(',')] if a.snrs else list(range(-30, 1))
@@ -521,6 +571,9 @@ def main(a):
                     upsampling=a.upsampling, snrs=snrs, results=res,
                     noise_mode=a.noise_mode, normalization=(not a.no_norm),
                     model_mode=a.model_mode, lpf=bool(a.lpf), noise_reals=R,
+                    provenance=provenance(
+                        ('nelora_dnn_eval.py', 'nelora_chirp.py')
+                        + (('loraphy_orig.py',) if a.loraphy_orig else ())),
                     note='held-out; 부트스트랩 전 중간 저장')
     with open(a.out, 'w') as f:
         json.dump(base_out, f, indent=2)
@@ -536,7 +589,10 @@ def main(a):
         pairs = [(x, z) for x in arms for z in arms if x != z]
         want = [('standard_rx', 'nelora_dnn'), ('decode_loraphy', 'nelora_dnn'),
                 ('decode_loraphy', 'standard_rx'), ('D3_aligned', 'nelora_dnn'),
-                ('decode_loraphy', 'D3_aligned')]
+                ('decode_loraphy', 'D3_aligned'),
+                # 원본 LoRaPHY 대 포팅본 — 빠진 두 줄의 값어치
+                ('decode_loraphy', 'loraphy_orig'), ('loraphy_orig', 'standard_rx'),
+                ('loraphy_orig', 'loraphy_nolpf'), ('decode_loraphy', 'loraphy_orig_fir')]
         want = [w for w in want if w[0] in arms and w[1] in arms]
         acc_g = {w: [] for w in want}
         for b in range(a.boot):
@@ -602,6 +658,12 @@ if __name__ == '__main__':
     ap.add_argument('--refs', action='store_true', default=True,
                     help='정렬된 D2/D3 기준선도 함께 측정 (판정 상한)')
     ap.add_argument('--no-refs', dest='refs', action='store_false')
+    ap.add_argument('--loraphy-orig', action='store_true',
+                    help='원본 LoRaPHY(Xia TOSN22) 경로를 팔로 추가 — 대역제한·리샘플 '
+                         '두 줄을 되살린 판. 포팅본과 같은 잡음·같은 held-out 에서 잰다')
+    ap.add_argument('--proto-exclude', default=None,
+                    help='경험 프로토타입(D3)에서 뺄 패킷 id, 쉼표 구분. '
+                         '통째로 밀린 패킷의 오염을 재는 용도 — 평가셋은 건드리지 않는다')
     ap.add_argument('--only-idx', default=None,
                     help='split_sf<SF>_test.npy — held-out 인덱스만 평가 (--max-symbols 0 필요)')
     ap.add_argument('--lpf', action='store_true',
