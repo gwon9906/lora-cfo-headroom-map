@@ -1,0 +1,74 @@
+==============================================================================
+T0  규약 구현 온전성
+  theirs         add_noise_theirs 와 상대차 0.00e+00 (허용 1e-06)  OK
+  per-symbol     add_noise_theirs 와 상대차 3.31e-08 (허용 1e-06)  OK
+  정포락선·동일진폭 입력에서 규약별 SNR 흩어짐 (dB, 최대 |값|):
+    theirs        0.00e+00  OK
+    batch-amp-iid 0.00e+00  OK
+    sliding       0.00e+00  OK
+    per-symbol    0.00e+00  OK
+  per-symbol, 표기 -10.0 dB -> 실측 샘플당 SNR -9.974 dB  OK
+
+  OK
+캐시 results/cache_sf7.npz: 13714심볼
+held-out 1353심볼 / 18패킷
+기준선 정렬: tau=+1.00 샘플, eps=+0.1250 bin
+
+==============================================================================
+B0  캡처 진폭이 실제로 얼마나 흩어지는가 (표기 SNR 과의 차, dB)
+  규약                   std      5%     95%      최소      최대
+  theirs              3.08   -6.16    3.06   -8.11    4.85
+  batch-amp-iid       3.08   -6.16    3.06   -8.11    4.85
+  sliding             2.83   -5.75    2.99   -8.22    5.22
+  per-symbol          0.00    0.00    0.00    0.00    0.00
+
+==============================================================================
+B  실캡처 held-out (SF7)
+    theirs         실현 1/4
+    theirs         실현 2/4
+    theirs         실현 3/4
+    theirs         실현 4/4
+    batch-amp-iid  실현 1/4
+    batch-amp-iid  실현 2/4
+    batch-amp-iid  실현 3/4
+    batch-amp-iid  실현 4/4
+    sliding        실현 1/4
+    sliding        실현 2/4
+    sliding        실현 3/4
+    sliding        실현 4/4
+    per-symbol     실현 1/4
+    per-symbol     실현 2/4
+    per-symbol     실현 3/4
+    per-symbol     실현 4/4
+
+==============================================================================
+10% SER 교차점 (전대역 축) — 이론 -20.02 dB
+  팔                           theirs   batch-amp-iid         sliding      per-symbol
+  decode_loraphy           -13.09 dB       -13.08 dB       -13.33 dB       -15.95 dB
+  loraphy_orig             -16.13 dB       -16.21 dB       -16.54 dB       -19.04 dB
+  standard_rx              -16.35 dB       -16.39 dB       -16.72 dB       -19.16 dB
+  D2_aligned               -16.87 dB       -16.86 dB       -17.51 dB       -19.85 dB
+  D3_aligned               -17.02 dB       -16.94 dB       -17.61 dB       -19.91 dB
+
+이론과의 차 (양수 = 이론보다 그만큼 더 높은 SNR 이 필요하다 = 나쁘다)
+  decode_loraphy            +6.93 dB        +6.94 dB        +6.69 dB        +4.07 dB
+  loraphy_orig              +3.89 dB        +3.81 dB        +3.48 dB        +0.98 dB
+  standard_rx               +3.67 dB        +3.63 dB        +3.30 dB        +0.86 dB
+  D2_aligned                +3.15 dB        +3.16 dB        +2.51 dB        +0.17 dB
+  D3_aligned                +3.00 dB        +3.08 dB        +2.41 dB        +0.11 dB
+
+곡선의 급경사: SER 90% -> 10% 폭 (dB) — 이론 8.56 dB
+  decode_loraphy            13.05 dB        12.71 dB        12.31 dB         9.23 dB
+  loraphy_orig              11.82 dB        11.93 dB        11.42 dB         8.18 dB
+  standard_rx               12.13 dB        12.30 dB        11.80 dB         8.71 dB
+  D2_aligned                12.06 dB        12.12 dB        11.41 dB         8.56 dB
+  D3_aligned                11.97 dB        12.08 dB        11.28 dB         8.57 dB
+
+격차가 규약에 불변인가 (패킷 재표집 1000 복제)
+  격차                                                  theirs         batch-amp-iid               sliding            per-symbol
+  decode_loraphy_minus_standard_rx       +3.34 [+2.51,+4.11]   +3.40 [+2.80,+4.08]   +3.45 [+2.82,+4.09]   +3.20 [+2.86,+3.60]
+  decode_loraphy_minus_loraphy_orig      +3.06 [+2.20,+3.67]   +3.13 [+2.65,+3.70]   +3.23 [+2.67,+3.83]   +3.08 [+2.85,+3.40]
+  loraphy_orig_minus_standard_rx         +0.24 [-0.08,+0.90]   +0.24 [-0.11,+0.85]   +0.21 [-0.11,+0.80]   +0.12 [-0.09,+0.34]
+  decode_loraphy_minus_D3_aligned        +4.03 [+3.36,+4.82]   +4.10 [+3.60,+4.80]   +4.21 [+3.54,+4.86]   +3.98 [+3.67,+4.37]
+
+저장: results/noise_conv_real.json

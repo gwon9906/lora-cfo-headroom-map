@@ -13,9 +13,11 @@
     바꿨다가 되돌렸다: 주장이
     10% 교차점 하나라 로그축의 장점(저SER 확대)을 이 보고서는 쓰지 않고, 2페이지
     원고에서 작게 들어갈 때 선형이 축소에 강하다.
-  * **읽는 방법만 개선한다.** 그들 그림에 없는 것 네 가지 —
+  * **읽는 방법만 개선한다.** 그들 그림에 없는 것 다섯 가지 —
     교차점 드롭라인 + 값, 선 스타일 구분(흑백 인쇄), 주인공(표준 RX)만 굵게,
-    라벨에서 해석 제거(`Empirical MF (aligned)`, 상한이라는 근거는 캡션에).
+    라벨에서 해석 제거(`Empirical MF (aligned)`, 상한이라는 근거는 캡션에),
+    그리고 **이론 곡선** (theory_ser.py). 이론선은 축이 어느 SNR 규약인지 그림에서
+    바로 보이게 하려는 것이지 실캡처 팔이 닿을 선이 아니다 — 가장 연한 점선으로 둔다.
   * **기준선은 데이터보다 약하게.** 10% 임계와 랜덤 추측 1−1/N 은 연한 점선이다.
     굵은 검정 파선으로 그리면 임계선이 데이터보다 강해진다.
 
@@ -119,6 +121,21 @@ def mark_crossings(ax, cross, fs=7):
                     bbox=dict(fc='white', ec='none', alpha=.85, pad=1.2))
 
 
+def theory_curve(sf=7, osf=8, lo=-40.0, hi=XHI):
+    """이론 곡선 — 비결맞음 직교 M-ary 최적 검출, 같은 전대역 축.
+
+    축이 어느 규약인지 그림에서 바로 보이게 하려고 넣는다. 이상 처프·타이밍/CFO=0·
+    심볼별 잡음을 가정하므로 실캡처 팔이 닿을 수 있는 선이 아니다 — **축의 눈금**으로
+    읽어야 한다. 캡션에 그렇게 적는다. theory_ser 를 못 불러오면 조용히 생략한다.
+    """
+    try:
+        from theory_ser import curve
+    except Exception:
+        return None
+    pts = [(x, y) for x, y in curve(sf, osf, np.arange(lo, hi + .01, 0.25))]
+    return [p[0] for p in pts], [p[1] for p in pts]
+
+
 def fig1():
     ser = load('ext_sf7_plain.json' if have('ext_sf7_plain.json')
                else 'dnn_sf7_heldout_plain.json')
@@ -131,11 +148,22 @@ def fig1():
 
     fig, ax = plt.subplots(figsize=(7.0, 4.6))
     xlo, cross = plot_arms(ax, ser, ORDER, short)
+    th = theory_curve(7, 8, xlo)
+    if th is not None:
+        ax.plot(th[0], th[1], ls=(0, (1, 2)), lw=1.3, color='0.35', zorder=2,
+                label='Theory: noncoherent ML at $f_s=BW$')
+        c = crossing(th[0], th[1])
+        if c is not None:
+            ax.annotate(f'{c:.2f} dB', (c, .14), ha='center', va='bottom',
+                        fontsize=7, color='0.35', zorder=5,
+                        bbox=dict(fc='white', ec='none', alpha=.85, pad=1.2))
+            ax.plot([c, c], [THR, .135], ls='-', lw=.9, color='0.35', alpha=.5, zorder=2)
     style(ax, 'SF7, held-out packets — their conditions, same batch', xlo)
     mark_crossings(ax, cross)
     ax.legend(fontsize=8, loc='upper right', bbox_to_anchor=(.995, .93), framealpha=.95)
     fig.tight_layout(); fig.savefig(os.path.join(R, 'fig1_ser.png'), dpi=200)
-    print('  fig1_ser.png   ' + '  '.join(f'{c:.2f}' for c, _ in cross))
+    print('  fig1_ser.png   ' + '  '.join(f'{c:.2f}' for c, _ in cross)
+          + (f'   theory {crossing(*th):.2f}' if th is not None else ''))
 
 
 def fig2():

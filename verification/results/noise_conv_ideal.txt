@@ -1,0 +1,38 @@
+
+==============================================================================
+A  이상 처프 (SF7, 2000심볼, 캡처잡음·임페어먼트 없음)
+   규약 효과만 남는다. per-symbol 이 이론과 붙어야 한다.
+    theirs         실현 1/3
+    theirs         실현 2/3
+    theirs         실현 3/3
+    batch-amp-iid  실현 1/3
+    batch-amp-iid  실현 2/3
+    batch-amp-iid  실현 3/3
+    sliding        실현 1/3
+    sliding        실현 2/3
+    sliding        실현 3/3
+    per-symbol     실현 1/3
+    per-symbol     실현 2/3
+    per-symbol     실현 3/3
+
+==============================================================================
+10% SER 교차점 (전대역 축) — 이론 -20.02 dB
+  팔                           theirs   batch-amp-iid         sliding      per-symbol
+  decode_loraphy           -15.77 dB       -15.70 dB       -15.70 dB       -15.70 dB
+  loraphy_orig             -19.08 dB       -19.02 dB       -19.02 dB       -19.02 dB
+  standard_rx              -19.78 dB       -19.82 dB       -19.82 dB       -19.82 dB
+  D2_aligned               -19.97 dB       -20.02 dB       -20.02 dB       -20.02 dB
+
+이론과의 차 (양수 = 이론보다 그만큼 더 높은 SNR 이 필요하다 = 나쁘다)
+  decode_loraphy            +4.25 dB        +4.32 dB        +4.32 dB        +4.32 dB
+  loraphy_orig              +0.94 dB        +1.00 dB        +1.00 dB        +1.00 dB
+  standard_rx               +0.24 dB        +0.20 dB        +0.20 dB        +0.20 dB
+  D2_aligned                +0.05 dB        +0.00 dB        +0.00 dB        +0.00 dB
+
+곡선의 급경사: SER 90% -> 10% 폭 (dB) — 이론 8.56 dB
+  decode_loraphy             8.99 dB         9.36 dB         9.36 dB         9.36 dB
+  loraphy_orig               8.38 dB         8.41 dB         8.41 dB         8.41 dB
+  standard_rx                8.32 dB         8.63 dB         8.63 dB         8.63 dB
+  D2_aligned                 8.58 dB         8.53 dB         8.53 dB         8.53 dB
+
+저장: results/noise_conv_ideal.json
