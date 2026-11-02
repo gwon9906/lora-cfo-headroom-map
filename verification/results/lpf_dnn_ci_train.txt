@@ -1,0 +1,48 @@
+/home/gwon9906/miniconda3/envs/ai/lib/python3.11/site-packages/torch/functional.py:704: UserWarning: A window was not provided. A rectangular window will be applied,which is known to cause spectral leakage. Other windows such as torch.hann_window or torch.hamming_window can are recommended to reduce spectral leakage.To suppress this warning and use a rectangular window, explicitly set `window=torch.ones(n_fft, device=<device>)`. (Triggered internally at ../aten/src/ATen/native/SpectralOps.cpp:836.)
+  return _VF.stft(  # type: ignore[attr-defined]
+SF7  N=128  M=1024  OSF=8
+  held-out 만 평가: /home/gwon9906/LoRa/NeLoRa_Dataset/split_sf7_test.npy -> 1353심볼
+  평가 심볼 1353개
+
+[자체검사] 벡터화 decode_loraphy 가 원문과 같은가
+  일치 64/64  OK
+  로드: /home/gwon9906/LoRa/NeLoRa_Dataset/ckpt_sf7_lpf/398_maskCNN.pkl
+  로드: /home/gwon9906/LoRa/NeLoRa_Dataset/ckpt_sf7_lpf/398_C_XtoY.pkl
+  모델 모드: train  (그들 test() 와 동일 — BatchNorm 이 배치 통계를 쓴다)
+  기준선 정렬: tau=+1.00 샘플, eps=+0.1250 bin  (프로토타입 12361심볼)
+  경험 프로토타입 코드 커버리지 100%
+  입력에 ±BW/2 브릭월 LPF 적용 (잡음 -> LPF -> 정규화, 학습과 동일 순서)
+
+[1단계] 잡음 실현 10개 × SNR 11점 × 팔 5개  (심볼 1353, 배치 16)
+  실현 1/10  경과 3.6분  남은 예상 32.3분
+  실현 2/10  경과 7.2분  남은 예상 28.9분
+  실현 3/10  경과 10.8분  남은 예상 25.3분
+  실현 4/10  경과 14.4분  남은 예상 21.7분
+  실현 5/10  경과 18.1분  남은 예상 18.1분
+  실현 6/10  경과 21.9분  남은 예상 14.6분
+  실현 7/10  경과 25.6분  남은 예상 11.0분
+  실현 8/10  경과 29.4분  남은 예상 7.3분
+  실현 9/10  경과 33.1분  남은 예상 3.7분
+  실현 10/10  경과 36.8분
+  SNR  -10.0  decode_loraphy= 99.9%  standard_rx= 99.9%  nelora_dnn= 99.4%  D2_aligned=100.0%  D3_aligned=100.0%
+  SNR  -12.0  decode_loraphy= 99.3%  standard_rx= 99.3%  nelora_dnn= 96.9%  D2_aligned= 99.7%  D3_aligned= 99.7%
+  SNR  -14.0  decode_loraphy= 96.5%  standard_rx= 96.9%  nelora_dnn= 90.8%  D2_aligned= 98.2%  D3_aligned= 98.3%
+  SNR  -15.0  decode_loraphy= 93.7%  standard_rx= 94.4%  nelora_dnn= 86.6%  D2_aligned= 95.8%  D3_aligned= 96.1%
+  SNR  -16.0  decode_loraphy= 90.6%  standard_rx= 91.5%  nelora_dnn= 81.5%  D2_aligned= 93.5%  D3_aligned= 93.7%
+  SNR  -17.0  decode_loraphy= 86.1%  standard_rx= 87.3%  nelora_dnn= 75.8%  D2_aligned= 89.9%  D3_aligned= 90.2%
+  SNR  -18.0  decode_loraphy= 81.8%  standard_rx= 83.5%  nelora_dnn= 70.5%  D2_aligned= 85.9%  D3_aligned= 86.2%
+  SNR  -19.0  decode_loraphy= 76.2%  standard_rx= 78.0%  nelora_dnn= 63.1%  D2_aligned= 80.9%  D3_aligned= 81.2%
+  SNR  -20.0  decode_loraphy= 69.8%  standard_rx= 72.1%  nelora_dnn= 54.5%  D2_aligned= 75.3%  D3_aligned= 75.7%
+  SNR  -22.0  decode_loraphy= 52.5%  standard_rx= 55.1%  nelora_dnn= 38.2%  D2_aligned= 60.6%  D3_aligned= 61.3%
+  SNR  -24.0  decode_loraphy= 33.1%  standard_rx= 36.5%  nelora_dnn= 22.0%  D2_aligned= 41.4%  D3_aligned= 42.5%
+
+중간 저장: lpf_dnn_ci_train.json
+[2단계] 패킷 재표집 1000 복제 — 저장된 정오답 인덱싱만
+  격차                                       중앙값                95% CI
+  standard_rx − nelora_dnn              -2.22  [ -2.73,  -1.63]  유의
+  decode_loraphy − nelora_dnn              -1.97  [ -2.40,  -1.32]  유의
+  decode_loraphy − standard_rx             +0.24  [ -0.17,  +0.78]  0 과 구별 안 됨
+  D3_aligned − nelora_dnn              -2.87  [ -3.30,  -2.43]  유의
+  decode_loraphy − D3_aligned              +0.91  [ +0.44,  +1.57]  유의
+
+저장: lpf_dnn_ci_train.json  <- 이 파일만 가져오면 된다
