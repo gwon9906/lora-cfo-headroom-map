@@ -35,16 +35,16 @@
 
 일부 초저 SNR 구간에서 repo 내 baseline 대비 개선이 관측되었다.
 
-![결과 요약표](local/bestresult.png)
+![결과 요약표](bam-trajectory/local/bestresult.png)
 
 - −30 dB: 3.5% → **7.1%** (+3.6%p)
 - −25 dB: 18.7% → **27.8%** (+9.1%p)
 
-![복조 성능 곡선](local/bestresultGraph.png)
+![복조 성능 곡선](bam-trajectory/local/bestresultGraph.png)
 
 **복원 예시 (SNR = −15 dB, Complex spectrogram 도메인)**
 
-![복원 스펙트로그램](local/denoised.png)
+![복원 스펙트로그램](bam-trajectory/local/denoised.png)
 좌: 잡음 입력 · 중: BAM 복원 (bottleneck=512) · 우: 클린 타깃.
 Chirp 궤적은 일부 살아나지만 진폭 collapse 가 남아 있다.
 
@@ -59,7 +59,7 @@ Chirp 궤적은 일부 살아나지만 진폭 collapse 가 남아 있다.
 처음에는 "초저 SNR LoRa IQ 는 심볼 구분 정보를 담고 있지 않다" 는 결론을 SOM
 실험에서 끌어냈다.
 
-![STFT-SOM Label Map](local/SOM.png)
+![STFT-SOM Label Map](bam-trajectory/local/SOM.png)
 
 SOM 격자 위에서 같은 label 이 연속 영역을 이루지 못하고 파편화된 것은 **사실**이다.
 
@@ -74,19 +74,23 @@ SOM 격자 위에서 같은 label 이 연속 영역을 이루지 못하고 파�
 
 폴더는 **실험 시간 순**이며, 이름에 그 시점의 접근이 드러난다.
 `01 → 07` 순서로 읽으면 1차 결과까지의 코드 궤적을 따라갈 수 있다.
+전부 `archive/bam-trajectory/` 한 곳 아래에 있다 — 7개로 흩어져 있던 것을 한 폴더로
+묶었다 (내용은 안 건드렸다, `git mv` 라 이력도 그대로 따라간다).
 
 ```
 archive/
-├── utils/                                 # 공용: LoRa 클래스, BAM 구현, 심볼 추정
-├── 01_baseline_stft-magnitude-bam/        # STFT magnitude(dB) + MultiBAM
-├── 02_bam-v3_complex-spectrogram/         # Complex 스펙트로그램 + MultiBAMv3
-├── 03_bam-v4_tied-autoencoder/            # Tied AE 구조
-├── 04_bam-v5_untied-residual-huber/       # Untied + outer residual + Huber
-├── 05_bam-v6_residual-fc-blocks/          # Residual FC block 스택
-├── 06_bam_complex-iq-direct/              # 단층 Complex-Valued BAM (IQ 직접 입력)
-├── 07_noise2noise/                        # Noise2Noise 학습 (1차 결과)
-├── simulation_theory/                     # 복소수 활성함수(modReLU, zReLU) 시각화
-└── local/                                 # 위 그림들
+├── README.md                              # 이 문서
+└── bam-trajectory/
+    ├── utils/                             # 공용: LoRa 클래스, BAM 구현, 심볼 추정
+    ├── 01_baseline_stft-magnitude-bam/    # STFT magnitude(dB) + MultiBAM
+    ├── 02_bam-v3_complex-spectrogram/     # Complex 스펙트로그램 + MultiBAMv3
+    ├── 03_bam-v4_tied-autoencoder/        # Tied AE 구조
+    ├── 04_bam-v5_untied-residual-huber/   # Untied + outer residual + Huber
+    ├── 05_bam-v6_residual-fc-blocks/      # Residual FC block 스택
+    ├── 06_bam_complex-iq-direct/          # 단층 Complex-Valued BAM (IQ 직접 입력)
+    ├── 07_noise2noise/                    # Noise2Noise 학습 (1차 결과)
+    ├── simulation_theory/                 # 복소수 활성함수(modReLU, zReLU) 시각화
+    └── local/                             # 위 그림들
 ```
 
 ### 01_baseline_stft-magnitude-bam/ — 실수 도메인 baseline

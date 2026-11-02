@@ -976,10 +976,7 @@ LoRa-bam-reconstruction/
 ├── verification/            # 모든 측정 코드. 결과 JSON/PNG 는 verification/results/
 └── archive/                 # 출발점이었던 Complex-valued BAM 궤적 — 전부 철회됨
     ├── README.md            #   무엇을 시도했고 왜 무너졌나
-    ├── 01_…07_              #   실험 시간 순 노트북
-    ├── utils/               #   BAM 구현 + 당시 baseline 복조 함수
-    ├── simulation_theory/   #   복소 활성함수 시각화
-    └── local/               #   철회된 1차 결과 그림
+    └── bam-trajectory/      #   01~07 노트북 + utils + simulation_theory + local, 한 폴더로
 ```
 
 `verification/` 을 §3 → §4 → §5 순으로 읽으면 재검증의 궤적을 따라갈 수 있고,
