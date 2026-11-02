@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+type: software
+title: "LoRa CFO Headroom Map: Re-verifying a LoRa Demodulator Baseline and Mapping Where Classical CFO Estimation Stops"
+authors:
+  - name: "haegwon"
+repository-code: "https://github.com/gwon9906/lora-cfo-headroom-map"
+url: "https://github.com/gwon9906/lora-cfo-headroom-map"
+abstract: >
+  An independent re-verification study of LoRa (Chirp Spread Spectrum) ultra-low-SNR
+  demodulation. Starts from an attempt to use a Complex-valued Bidirectional
+  Associative Memory (BAM) as a denoising front-end, finds that the apparent gain was
+  recovered front-end implementation loss rather than learned denoising, and
+  self-falsifies that result and its first replacement twice over. Separately
+  reproduces a published neural-enhanced LoRa demodulator (NELoRa, SenSys'21) on its
+  public benchmark release and finds its reported baseline is missing a band-limiting
+  step present in the original LoRaPHY implementation it is ported from; restoring that
+  step closes most of the reported gap. The surviving, defensible contribution is a
+  genie-bounded headroom map: where classical CFO (carrier frequency offset) estimation
+  stops paying, quantified with bootstrap confidence intervals, across a baseline ladder
+  from blind to drift-aware 2D estimation.
+keywords:
+  - LoRa
+  - chirp spread spectrum
+  - low-SNR demodulation
+  - carrier frequency offset
+  - signal processing
+  - reproducibility
+license: "MIT"
+version: "1.0.0"
+date-released: "2026-11-03"
